@@ -28,6 +28,17 @@ Any file you add under `ios/TroShare/` is included in the build automatically.
 | **Browse** | (the "Browse" tab in the design) | Search, hall filter chips, sorted by distance from your hall |
 | **Account** | Mobile — My Account | Rating, Renting / My listings, recently viewed, favorites, payments. Changing your residence re-centers Home on that hall. |
 
+## AI room planner
+
+- **Plan your room** (the card on Home): take or choose up to 5 photos of your room. Claude looks at them and recommends what to get, most important first. Each recommendation names the nearest matching TroShare listing, and Claude also suggests a few free fixes.
+- **See it in your room** (the button on every listing, and on each recommendation): places the item on one of your room photos. Drag to move, pinch or use the slider to resize, twist to rotate, and Flip to mirror it. The product is cut out of its white studio photo with Vision's subject segmentation. Where that isn't available, the app clears the white background itself.
+
+**Setup:** open Settings (the gear on Account, or the key on the planner) and paste an Anthropic API key from console.anthropic.com. It's stored in the iPhone's Keychain.
+
+**How it works:** [RoomAdvisor.swift](TroShare/Model/RoomAdvisor.swift) calls the Claude Messages API directly over HTTPS (there's no official Swift SDK). It uses model `claude-opus-5-5`, sends the photos as base64 JPEGs, and asks for a JSON-schema response (`output_config.format`). It also sets `fallbacks: "default"`, so a request a safety filter declines is re-run on Anthropic's recommended fallback model. In a production app, the key should live on a TroShare server that makes this call for the app. A key stored on users' phones can be extracted.
+
+**Demo:** to include a live analysis in the CI demo, add the key as a repository secret: `gh secret set ANTHROPIC_API_KEY`. The demo's sample room photo is "Endicott College Stoneridge Hall empty dorm room" by Sdkb (Wikimedia Commons, CC BY-SA 4.0). It's downloaded during the CI run and isn't stored in this repository.
+
 ## Code layout
 
 ```

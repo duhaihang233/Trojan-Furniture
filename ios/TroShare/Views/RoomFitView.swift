@@ -73,8 +73,10 @@ struct RoomFitView: View {
                 Image(uiImage: room)
                     .resizable()
                     .frame(width: size.width, height: size.height)
+                // `width` is the item's longest side, as a fraction of the photo's width.
                 productImage(listing, cutout: cutout)
-                    .frame(width: size.width * clampWidth(width * pinch))
+                    .frame(width: size.width * clampWidth(width * pinch),
+                           height: size.width * clampWidth(width * pinch))
                     .scaleEffect(x: mirrored ? -1 : 1, y: 1)
                     .rotationEffect(.degrees(rotation.degrees + twist.degrees))
                     .shadow(color: .black.opacity(0.3), radius: 8, y: 6)
@@ -130,8 +132,8 @@ struct RoomFitView: View {
         if let cutout {
             Image(uiImage: cutout).resizable().scaledToFit()
         } else {
-            // No cutout available: multiply hides the white studio background against the room.
-            ListingImage(listing: listing).blendMode(.multiply)
+            // Shown faintly while the cutout is being made (or if it can't be made).
+            ListingImage(listing: listing).opacity(loadingCutout ? 0.4 : 0.85)
         }
     }
 

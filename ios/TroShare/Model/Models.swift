@@ -29,16 +29,17 @@ enum ItemKind: String, CaseIterable, Hashable {
 
     var imageName: String { "item-\(rawValue)" }
 
-    /// Starting width in the room preview, as a fraction of the photo's width (a rough guess the user adjusts).
+    /// Starting size of the item's longest side in the room preview, as a fraction of the photo's width.
+    /// A rough guess the user adjusts.
     var roomWidth: CGFloat {
         switch self {
-        case .tv: 0.34
-        case .bean: 0.32
-        case .lamp: 0.12
-        case .floor: 0.14
-        case .fan: 0.08
-        case .topper: 0.5
-        case .cart: 0.14
+        case .tv: 0.3
+        case .bean: 0.3
+        case .lamp: 0.14
+        case .floor: 0.36
+        case .fan: 0.22
+        case .topper: 0.45
+        case .cart: 0.22
         }
     }
 
