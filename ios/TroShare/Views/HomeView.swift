@@ -12,6 +12,7 @@ struct HomeView: View {
                     GoldStripe()
                     HallMap(selectedHall: $store.homeSelectedHall)
                     hero
+                    roomPlannerCard
                     nextHandoff
                     listingsSection
                 }
@@ -86,6 +87,33 @@ struct HomeView: View {
         .padding(.bottom, 44)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.cardinal)
+    }
+
+    private var roomPlannerCard: some View {
+        Button { store.homePath.append(Route.roomPlanner) } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color.cardinal)
+                    .frame(width: 52, height: 52)
+                    .background(Color.paleGold, in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Plan your room with AI").font(.caslon(18)).foregroundStyle(Color.ink)
+                    Text("Snap your room. Claude suggests what to rent, and you can see how it fits.")
+                        .font(.ui(13)).foregroundStyle(Color.ink2)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").foregroundStyle(Color.muted)
+            }
+            .padding(14)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.cardinal, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
     }
 
     @ViewBuilder

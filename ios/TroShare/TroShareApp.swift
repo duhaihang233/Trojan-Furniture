@@ -37,6 +37,7 @@ struct RootView: View {
                 .tag(AppStore.Tab.account)
         }
         .tint(Color.cardinal)
+        .sheet(isPresented: $store.showSettings) { SettingsView() }
     }
 }
 
@@ -48,6 +49,8 @@ extension View {
             case .listing(let id): ProductView(listingID: id)
             case .checkout: CheckoutView()
             case .chat(let id): ChatView(conversationID: id)
+            case .roomPlanner: RoomPlannerView()
+            case .roomFit(let id): RoomFitView(listingID: id)
             }
         }
     }

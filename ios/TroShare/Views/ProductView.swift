@@ -73,7 +73,18 @@ struct ProductView: View {
                     .padding(16)
             }
             .overlay(alignment: .bottom) { Rectangle().fill(Color.line2).frame(height: 1) }
-            .accessibilityElement(children: .combine)
+            .overlay(alignment: .bottomTrailing) {
+                Button { store.push(.roomFit(listing.id)) } label: {
+                    Label("See it in your room", systemImage: "camera.viewfinder")
+                        .font(.ui(13, .bold))
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 36)
+                        .background(Color.cardinal, in: Capsule())
+                        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+                }
+                .padding(12)
+            }
     }
 
     private func sellerCard(_ listing: Listing) -> some View {

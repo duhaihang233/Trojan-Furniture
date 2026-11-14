@@ -29,6 +29,28 @@ enum ItemKind: String, CaseIterable, Hashable {
 
     var imageName: String { "item-\(rawValue)" }
 
+    /// Starting width in the room preview, as a fraction of the photo's width (a rough guess the user adjusts).
+    var roomWidth: CGFloat {
+        switch self {
+        case .tv: 0.34
+        case .bean: 0.32
+        case .lamp: 0.12
+        case .floor: 0.14
+        case .fan: 0.08
+        case .topper: 0.5
+        case .cart: 0.14
+        }
+    }
+
+    /// Starting vertical position (fraction of photo height) for the item's center.
+    var roomY: CGFloat {
+        switch self {
+        case .tv, .lamp: 0.5
+        case .floor, .fan, .cart: 0.62
+        case .bean, .topper: 0.75
+        }
+    }
+
     var detail: String {
         switch self {
         case .tv: "Remote included · 2 HDMI ports"
@@ -203,4 +225,6 @@ enum Route: Hashable {
     case listing(UUID)
     case checkout
     case chat(UUID)
+    case roomPlanner
+    case roomFit(UUID)
 }

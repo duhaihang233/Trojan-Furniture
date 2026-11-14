@@ -25,7 +25,7 @@ struct AccountView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {} label: { Image(systemName: "gearshape").foregroundStyle(Color.white) }
+                    Button { store.showSettings = true } label: { Image(systemName: "gearshape").foregroundStyle(Color.white) }
                         .accessibilityLabel("Settings")
                 }
             }

@@ -2,11 +2,10 @@ import SwiftUI
 
 struct BrowseView: View {
     @Environment(AppStore.self) private var store
-    @State private var query = ""
     @State private var hallFilter: String?
 
     private var results: [Listing] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let q = store.browseQuery.trimmingCharacters(in: .whitespaces).lowercased()
         return store.marketplace
             .filter { hallFilter == nil || $0.hallID == hallFilter }
             .filter { q.isEmpty || $0.name.lowercased().contains(q) || $0.seller.name.lowercased().contains(q) }
@@ -37,7 +36,7 @@ struct BrowseView: View {
                         .font(.ui(13)).foregroundStyle(Color.ink2)
                         .padding(.horizontal, 16)
                     if results.isEmpty {
-                        ContentUnavailableView.search(text: query)
+                        ContentUnavailableView.search(text: store.browseQuery)
                     } else {
                         ListingGrid(listings: results).padding(.horizontal, 16)
                     }
@@ -46,7 +45,7 @@ struct BrowseView: View {
             }
             .background(Color.cream)
             .navigationTitle("Browse")
-            .searchable(text: $query, isPresented: $store.searchActive, prompt: "Lamps, fans, TVs…")
+            .searchable(text: $store.browseQuery, isPresented: $store.searchActive, prompt: "Lamps, fans, TVs…")
             .appRoutes()
         }
     }

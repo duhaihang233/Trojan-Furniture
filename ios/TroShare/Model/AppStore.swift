@@ -14,7 +14,19 @@ final class AppStore {
     var inboxPath = NavigationPath()
     var accountPath = NavigationPath()
     var searchActive = false
+    var browseQuery = ""
     var homeSelectedHall: String?
+    var showSettings = false
+
+    // MARK: Room planner
+    var roomPhotos: [UIImage] = []
+    var roomAnalysis: RoomAnalysis?
+    var roomAnalyzing = false
+    var roomError: String?
+    /// Product cutouts for the room preview, keyed by listing id.
+    var cutouts: [UUID: UIImage] = [:]
+    private(set) var hasAPIKey = false
+    private static let apiKeyAccount = "anthropic-api-key"
     var accountTab: AccountTab = .renting
 
     // MARK: User
@@ -43,6 +55,7 @@ final class AppStore {
         ]
         listings = Self.seedListings(halls: halls)
         seedAccount()
+        hasAPIKey = apiKey != nil
         #if DEBUG
         applyDemoScreen()
         #endif
@@ -55,7 +68,23 @@ final class AppStore {
         guard let i = args.firstIndex(of: "-demoScreen"), i + 1 < args.count else { return }
         let bean = listings.first { $0.seller.name == "Maya K." && $0.kind == .bean }
         let lamp = listings.first { $0.seller.name == "Alex T." && $0.kind == .lamp }
+        // The CI job copies a sample room photo into the app's Documents folder.
+        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+           let photo = UIImage(contentsOfFile: docs.appendingPathComponent("demo-room.jpg").path) {
+            addRoomPhoto(photo)
+        }
         switch args[i + 1] {
+        case "room":
+            homePath.append(Route.roomPlanner)
+        case "roomresults":
+            homePath.append(Route.roomPlanner)
+            Task { @MainActor in await self.analyzeRoom() }
+        case "roomfit":
+            if let bean { homePath.append(Route.listing(bean.id)); homePath.append(Route.roomFit(bean.id)) }
+        case "roomfit-lamp":
+            if let floor = listings.first(where: { $0.seller.name == "Dani R." && $0.kind == .floor }) {
+                homePath.append(Route.roomFit(floor.id))
+            }
         case "map": homeSelectedHall = "village"
         case "browse": selectedTab = .browse
         case "product":
@@ -212,6 +241,71 @@ final class AppStore {
         // Move the thread to the top of the inbox.
         let convo = conversations.remove(at: i)
         conversations.insert(convo, at: 0)
+    }
+
+    // MARK: Room planner
+
+    var apiKey: String? {
+        if let key = KeychainStore.read(Self.apiKeyAccount), !key.isEmpty { return key }
+        #if DEBUG
+        // Lets the CI demo run a real analysis when the repo has an ANTHROPIC_API_KEY secret.
+        if let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !key.isEmpty { return key }
+        #endif
+        return nil
+    }
+
+    func saveAPIKey(_ key: String) {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { KeychainStore.delete(Self.apiKeyAccount) } else { KeychainStore.save(trimmed, account: Self.apiKeyAccount) }
+        hasAPIKey = apiKey != nil
+    }
+
+    func addRoomPhoto(_ image: UIImage) {
+        guard roomPhotos.count < RoomAdvisor.maxPhotos else { return }
+        roomPhotos.append(image.downscaled(maxDimension: 2048))
+    }
+
+    func removeRoomPhoto(at index: Int) {
+        guard roomPhotos.indices.contains(index) else { return }
+        roomPhotos.remove(at: index)
+    }
+
+    /// Nearest listing of a kind: your own hall first, then by walking distance, then price.
+    func bestListing(for kind: ItemKind) -> Listing? {
+        marketplace.filter { $0.kind == kind && $0.availability != .rentedOut }.min { a, b in
+            let da = a.hallID == residenceID ? -1 : hall(a.hallID).minutes
+            let db = b.hallID == residenceID ? -1 : hall(b.hallID).minutes
+            return da != db ? da < db : a.semesterPrice < b.semesterPrice
+        }
+    }
+
+    func browse(_ kind: ItemKind) {
+        browseQuery = kind.name
+        resetPaths()
+        selectedTab = .browse
+    }
+
+    @MainActor
+    func analyzeRoom() async {
+        guard !roomPhotos.isEmpty, !roomAnalyzing else { return }
+        guard let key = apiKey else {
+            roomError = RoomAdvisorError.missingKey.localizedDescription
+            return
+        }
+        let catalog: [RoomAdvisor.CatalogEntry] = ItemKind.allCases.compactMap { kind in
+            let prices = marketplace.filter { $0.kind == kind }.map(\.semesterPrice)
+            guard let lo = prices.min(), let hi = prices.max() else { return nil }
+            return RoomAdvisor.CatalogEntry(kind: kind, count: prices.count, minPrice: lo, maxPrice: hi)
+        }
+        roomAnalyzing = true
+        roomError = nil
+        defer { roomAnalyzing = false }
+        do {
+            roomAnalysis = try await RoomAdvisor(apiKey: key)
+                .analyze(photos: roomPhotos, hallName: residence.name, catalog: catalog)
+        } catch {
+            roomError = error.localizedDescription
+        }
     }
 
     // MARK: Listing your own stuff
