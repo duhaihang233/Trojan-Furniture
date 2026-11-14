@@ -1,5 +1,5 @@
 // TroShare service worker: caches the app shell so it opens offline.
-const CACHE = 'troshare-v1';
+const CACHE = 'troshare-v2';
 const ASSETS = [
   './', './index.html', './styles.css', './data.js', './app.js', './manifest.webmanifest',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png',

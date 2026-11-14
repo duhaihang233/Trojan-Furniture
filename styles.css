@@ -190,3 +190,190 @@ img { display: block; max-width: 100%; }
 .search input { border: none; outline: none; flex: 1; font-size: 16px; background: transparent; }
 .search svg { width: 18px; height: 18px; color: var(--gray); }
 .footer { padding: 28px 16px 8px; font-size: 13px; color: var(--muted); text-align: center; line-height: 1.5; }
+
+/* On a phone the shell disappears and the app fills the screen.
+   On a wide browser it becomes an iPhone 18: 6.3" 19.5:9 glass, Dynamic Island, aluminum frame. */
+.stage, .device, .device-body, .device-bezel, .device-screen { display: contents; }
+.device-hardware, .device-status, .device-home, .device-label { display: none; }
+
+@media (min-width: 900px) {
+  html, body { height: 100%; background: #141416; }
+  body { min-height: 100dvh; }
+  body:not(.native-app) .stage {
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    height: 100dvh;
+    padding: 20px 24px;
+    container-type: size;
+    background:
+      radial-gradient(900px 520px at 50% 12%, #3a3a3c 0%, transparent 68%),
+      #141416;
+  }
+  body:not(.native-app) .device {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  body:not(.native-app) .device-body {
+    display: block;
+    position: relative;
+    width: min(424px, calc((100cqh - 40px) * 424 / 896));
+    height: min(896px, calc(100cqh - 40px));
+  }
+  body:not(.native-app) .device-bezel {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    padding: 11px;
+    border-radius: 58px;
+    background:
+      linear-gradient(150deg, #f5f5f7 0%, #8e8e93 7%, #2c2c2e 16%, #1c1c1e 46%, #636366 82%, #e5e5ea 100%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, .45),
+      inset 0 0 0 3px #0a0a0c,
+      0 28px 70px rgba(0, 0, 0, .55);
+  }
+  body:not(.native-app) .device-screen {
+    display: block;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 48px;
+    overflow: hidden;
+    background: #000;
+    --safe-top: 54px;
+    --safe-bottom: 18px;
+  }
+  body:not(.native-app) .device-screen::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+    pointer-events: none;
+    z-index: 45;
+  }
+  body:not(.native-app) #app {
+    position: absolute;
+    inset: 0;
+    max-width: none;
+    margin: 0;
+    min-height: 0;
+    height: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  body:not(.native-app) .tabbar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-width: none;
+    margin: 0;
+  }
+  body:not(.native-app) .toast {
+    position: absolute;
+    max-width: 86%;
+  }
+  body:not(.native-app) .device-hardware { display: block; position: absolute; inset: 0; pointer-events: none; }
+  body:not(.native-app) .hw-btn {
+    position: absolute;
+    width: 3px;
+    background: linear-gradient(90deg, #1c1c1e, #f2f2f7 42%, #636366);
+    border-radius: 2px 0 0 2px;
+  }
+  body:not(.native-app) .hw-action { left: -3px; top: 15.5%; height: 26px; }
+  body:not(.native-app) .hw-vol-up { left: -3px; top: 22%; height: 52px; }
+  body:not(.native-app) .hw-vol-down { left: -3px; top: 29.5%; height: 52px; }
+  body:not(.native-app) .hw-right {
+    background: linear-gradient(90deg, #636366, #f2f2f7 58%, #1c1c1e);
+    border-radius: 0 2px 2px 0;
+  }
+  body:not(.native-app) .hw-side { right: -3px; top: 24%; height: 86px; }
+  body:not(.native-app) .hw-camera { right: -3px; top: 37%; height: 48px; border-radius: 0 4px 4px 0; }
+  body:not(.native-app) .device-status {
+    display: flex;
+    position: absolute;
+    z-index: 40;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 54px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 26px 0;
+    color: #fff;
+    pointer-events: none;
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.3px;
+  }
+  body:not(.native-app) .device-island {
+    position: absolute;
+    top: 11px;
+    left: 50%;
+    width: 124px;
+    height: 36px;
+    transform: translateX(-50%);
+    background: #000;
+    border-radius: 20px;
+  }
+  body:not(.native-app) .device-sys { display: flex; align-items: center; gap: 6px; }
+  body:not(.native-app) .cellular { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px; }
+  body:not(.native-app) .cellular i { display: block; width: 3px; background: #fff; border-radius: 0.5px; }
+  body:not(.native-app) .cellular i:nth-child(1) { height: 4px; }
+  body:not(.native-app) .cellular i:nth-child(2) { height: 6px; }
+  body:not(.native-app) .cellular i:nth-child(3) { height: 8px; }
+  body:not(.native-app) .cellular i:nth-child(4) { height: 11px; }
+  body:not(.native-app) .wifi { display: block; }
+  body:not(.native-app) .battery {
+    width: 25px;
+    height: 12px;
+    border: 1.5px solid #fff;
+    border-radius: 3.5px;
+    padding: 1px;
+    position: relative;
+  }
+  body:not(.native-app) .battery::after {
+    content: '';
+    position: absolute;
+    right: -3px;
+    top: 3px;
+    width: 1.5px;
+    height: 4px;
+    background: #fff;
+    border-radius: 0 1px 1px 0;
+  }
+  body:not(.native-app) .battery > span {
+    display: block;
+    width: 88%;
+    height: 100%;
+    background: #fff;
+    border-radius: 1px;
+  }
+  body:not(.native-app) .device-home {
+    display: block;
+    position: absolute;
+    z-index: 36;
+    left: 50%;
+    bottom: 7px;
+    width: 132px;
+    height: 5px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, .82);
+    pointer-events: none;
+  }
+  body:not(.native-app) .device-label {
+    display: block;
+    margin: 14px 0 0;
+    color: #aeaeb2;
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .2px;
+  }
+}

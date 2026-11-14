@@ -575,6 +575,18 @@
   window.addEventListener('hashchange', () => { sessionStorage.setItem('ts-nav', '1'); render(); });
   render();
 
+  if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
+    document.body.classList.add('native-app');
+  }
+  const deviceTime = document.getElementById('device-time');
+  if (deviceTime) {
+    const tick = () => {
+      deviceTime.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    };
+    tick();
+    setInterval(tick, 15000);
+  }
+
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   }

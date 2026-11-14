@@ -18,9 +18,39 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="app" aria-live="polite"></div>
-  <nav class="tabbar" id="tabbar" aria-label="Tabs"></nav>
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="stage">
+    <div class="device">
+      <div class="device-body">
+        <div class="device-hardware" aria-hidden="true">
+          <span class="hw-btn hw-action"></span>
+          <span class="hw-btn hw-vol hw-vol-up"></span>
+          <span class="hw-btn hw-vol hw-vol-down"></span>
+          <span class="hw-btn hw-right hw-side"></span>
+          <span class="hw-btn hw-right hw-camera"></span>
+        </div>
+        <div class="device-bezel">
+          <div class="device-screen">
+            <div class="device-status" aria-hidden="true">
+              <span class="device-time" id="device-time">9:41</span>
+              <span class="device-island"></span>
+              <span class="device-sys">
+                <span class="cellular"><i></i><i></i><i></i><i></i></span>
+                <svg class="wifi" viewBox="0 0 16 12" width="16" height="12" aria-hidden="true">
+                  <path fill="currentColor" d="M8 9.6a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM3.2 7.2a6.8 6.8 0 0 1 9.6 0l-1.2 1.3a5 5 0 0 0-7.2 0L3.2 7.2zm-2.3-2.4a10 10 0 0 1 14.2 0L13.8 6a8.2 8.2 0 0 0-11.6 0L.9 4.8z"/>
+                </svg>
+                <span class="battery"><span></span></span>
+              </span>
+            </div>
+            <div id="app" aria-live="polite"></div>
+            <nav class="tabbar" id="tabbar" aria-label="Tabs"></nav>
+            <div class="toast" id="toast" role="status" aria-live="polite"></div>
+            <div class="device-home" aria-hidden="true"></div>
+          </div>
+        </div>
+      </div>
+      <p class="device-label">iPhone 18</p>
+    </div>
+  </div>
   <script src="data.js"></script>
   <script src="app.js"></script>
 </body>
