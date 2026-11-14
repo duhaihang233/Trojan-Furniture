@@ -2,6 +2,9 @@ name: iOS demo (simulator screenshots + video)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ios-app]
+    paths: ["ios/**", ".github/workflows/ios-demo.yml"]
 
 jobs:
   demo:
