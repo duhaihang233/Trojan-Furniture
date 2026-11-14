@@ -1,0 +1,16 @@
+{
+  "name": "TroShare — USC Student Rentals",
+  "short_name": "TroShare",
+  "description": "A peer-to-peer marketplace for USC students to rent dorm essentials from each other.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFF6D9",
+  "theme_color": "#990000",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
