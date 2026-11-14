@@ -45,25 +45,21 @@ extension View {
     /// Destinations shared by every tab's NavigationStack.
     func appRoutes() -> some View {
         navigationDestination(for: Route.self) { route in
-            Group {
-                switch route {
-                case .listing(let id): ProductView(listingID: id)
-                case .checkout: CheckoutView()
-                case .chat(let id): ChatView(conversationID: id)
-                case .roomPlanner: RoomPlannerView()
-                case .roomFit(let id): RoomFitView(listingID: id)
-                }
+            switch route {
+            case .listing(let id): ProductView(listingID: id)
+            case .checkout: CheckoutView()
+            case .chat(let id): ChatView(conversationID: id)
+            case .roomPlanner: RoomPlannerView()
+            case .roomFit(let id): RoomFitView(listingID: id)
             }
-            // Pushed screens have light backgrounds; don't inherit the white title style of the red headers.
-            .toolbarColorScheme(.light, for: .navigationBar)
         }
     }
 
-    /// Cardinal navigation bar with white status bar + items, as in the design's header.
+    /// Cardinal navigation bar, as in the design's header. Its items set their own white color;
+    /// `toolbarColorScheme(.dark)` isn't used because pushed screens inherited it (white titles on white).
     func cardinalNavBar() -> some View {
         self
             .toolbarBackground(Color.cardinal, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
     }
 }
