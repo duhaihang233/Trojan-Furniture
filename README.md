@@ -11,6 +11,8 @@ Built for the USC **"Building for Trojans"** hackathon.
 
 ## Features
 
+- **Opening animation + Google login** — a gold T and S come together and open up into “TroShare,”
+  then the red screen shrinks into the login header. Students continue with their @usc.edu Google account.
 - **Interactive housing map** — tap a residence hall (Webb Tower, USC Village, New North, Pardee,
   Gateway, Parkside) to see what students there are renting out, with walking times from your hall.
 - **Browse & search** — filter by category (lighting, cooling, seating, sleep, tech, storage),
@@ -50,6 +52,7 @@ index.html            App shell + iOS home-screen meta tags
 styles.css            USC Cardinal & Gold design (Libre Caslon + Inter)
 data.js               Halls, item types and the sample listings
 app.js                Screens, routing and app logic (state saved in localStorage)
+intro.js              Opening animation and Google login screen
 manifest.webmanifest  Install info (name, icons, colors)
 sw.js                 Service worker for offline use
 images/               Product photos and the USC Housing map

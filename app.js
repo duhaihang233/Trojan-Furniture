@@ -366,6 +366,7 @@
         <div class="list-row"><span class="paytag" style="background:#000">PAY</span><span class="grow"><b>Apple Pay</b><span class="meta">Linked to iPhone</span></span></div>
         <div class="list-row"><span class="paytag" style="background:var(--cardinal);color:var(--gold)">$</span><span class="grow"><b>Payout account</b><span class="meta">Where your listing earnings go</span></span></div>
       </div>
+      <button type="button" class="btn btn-cardinal" data-action="logout">Log out</button>
       <button type="button" class="btn btn-outline" data-action="reset">Reset demo data</button>
     </section>
     <p class="footer">A peer-to-peer marketplace for USC students.<br>Rent what you need, share what you don't — Trojan to Trojan.</p>`;
@@ -486,6 +487,9 @@
       case 'residence': toast('Your hall comes from your USC Housing assignment'); break;
       case 'reset':
         if (window.confirm('Reset TroShare to the original demo data?')) { S = D.seedState(); ui.draft = null; save(); location.hash = '#/home'; render(); toast('Demo data reset'); }
+        break;
+      case 'logout':
+        if (window.TS_INTRO) window.TS_INTRO.logout();
         break;
       case 'cond': ui.draft.condition = id; rerender(); break;
       case 'rm-photo': ui.draft.photos.splice(Number(id), 1); rerender(); break;
