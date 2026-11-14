@@ -21,6 +21,7 @@ struct AccountView: View {
                 }
             }
             .background(Color.stone)
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

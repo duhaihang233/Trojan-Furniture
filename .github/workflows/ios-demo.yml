@@ -39,7 +39,7 @@ jobs:
           for s in home map product checkout chat inbox browse sell account listings; do
             xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
             xcrun simctl launch "$DEVICE" "$BUNDLE" -demoScreen "$s"
-            sleep 4
+            sleep 7
             xcrun simctl io "$DEVICE" screenshot "demo/$s.png"
           done
           kill -INT $REC; wait $REC || true

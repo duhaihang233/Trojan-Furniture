@@ -17,6 +17,8 @@ struct HomeView: View {
                 }
             }
             .background(Color.cream)
+            // The title is hidden behind the principal item; it lets toolbarColorScheme turn the status bar white.
+            .navigationTitle("TroShare")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -172,7 +174,10 @@ struct HallMap: View {
         .frame(height: 398)
         .clipped()
         .background(Color(hex: 0xE9E6E1))
-        .overlay(alignment: .bottom) { pill.padding(12) }
+        // Sits below the map (not over it) so the Parkside pin near the bottom edge stays tappable.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            pill.padding(12).background(Color(hex: 0xE9E6E1))
+        }
     }
 
     private var pillText: String {
