@@ -2,7 +2,7 @@ import SwiftUI
 
 struct HomeView: View {
     @Environment(AppStore.self) private var store
-    @State private var selectedHall: String?
+    private var selectedHall: String? { store.homeSelectedHall }
 
     var body: some View {
         @Bindable var store = store
@@ -10,7 +10,7 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     GoldStripe()
-                    HallMap(selectedHall: $selectedHall)
+                    HallMap(selectedHall: $store.homeSelectedHall)
                     hero
                     nextHandoff
                     listingsSection

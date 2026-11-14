@@ -14,6 +14,7 @@ final class AppStore {
     var inboxPath = NavigationPath()
     var accountPath = NavigationPath()
     var searchActive = false
+    var homeSelectedHall: String?
     var accountTab: AccountTab = .renting
 
     // MARK: User
@@ -42,7 +43,42 @@ final class AppStore {
         ]
         listings = Self.seedListings(halls: halls)
         seedAccount()
+        #if DEBUG
+        applyDemoScreen()
+        #endif
     }
+
+    #if DEBUG
+    /// Debug-only: `-demoScreen <name>` opens the app on a given screen (used by the CI demo recording).
+    private func applyDemoScreen() {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-demoScreen"), i + 1 < args.count else { return }
+        let bean = listings.first { $0.seller.name == "Maya K." && $0.kind == .bean }
+        let lamp = listings.first { $0.seller.name == "Alex T." && $0.kind == .lamp }
+        switch args[i + 1] {
+        case "map": homeSelectedHall = "village"
+        case "browse": selectedTab = .browse
+        case "product":
+            if let bean { homePath.append(Route.listing(bean.id)) }
+        case "checkout":
+            if let bean, let lamp {
+                addToCart(bean, plan: .semester, handoff: .dropoff)
+                addToCart(lamp, plan: .semester, handoff: .pickup)
+                homePath.append(Route.listing(bean.id))
+                homePath.append(Route.checkout)
+            }
+        case "sell": selectedTab = .sell
+        case "inbox": selectedTab = .inbox
+        case "chat":
+            if let first = conversations.first { openChat(first.id) }
+        case "account": selectedTab = .account
+        case "listings":
+            selectedTab = .account
+            accountTab = .listings
+        default: break
+        }
+    }
+    #endif
 
     // MARK: Lookups
 
