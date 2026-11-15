@@ -3,27 +3,30 @@
 (() => {
   'use strict';
   const D = window.TS_DATA;
-  const KEY = 'troshare-state-v1';
+  const AUTH = window.TS_AUTH;
   const app = document.getElementById('app');
   const tabbar = document.getElementById('tabbar');
   const toastEl = document.getElementById('toast');
 
   /* ---------- state ---------- */
-  let S = load();
+  // Each signed-in student gets their own saved activity on this device.
+  const stateKey = () => 'troshare-state-v2:' + (D.me.email || 'signed-out');
+  let S = null; // loaded at startup, after applyUser()
   function load() {
     try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) { const s = JSON.parse(raw); if (s && s.version === 1) return s; }
+      const raw = localStorage.getItem(stateKey());
+      // Filters are per-visit: every launch opens on your own hall with All categories.
+      if (raw) { const s = JSON.parse(raw); if (s && s.version === 1) { s.cat = 'all'; s.hall = D.me.hall; return s; } }
     } catch (e) { /* storage unavailable: fall back to fresh state */ }
-    return D.seedState();
+    return { ...D.emptyState(), hall: D.me.hall };
   }
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(S)); }
+    try { localStorage.setItem(stateKey(), JSON.stringify(S)); }
     catch (e) { toast('Storage is full — try a smaller photo'); }
   }
 
   // UI-only state (not persisted)
-  const ui = { plan: 'sem', hand: null, split: false, itemId: null, accTab: 'rent', q: '', sort: 'near', splitCart: false, draft: null };
+  const ui = { plan: 'sem', hand: null, split: false, itemId: null, accTab: 'rent', roomTab: 'ar', arType: null, q: '', sort: 'near', splitCart: false, draft: null };
 
   /* ---------- helpers ---------- */
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -36,8 +39,34 @@
   const initial = (n) => (n || '?').trim()[0].toUpperCase();
   const avClass = (n) => ((n || '').charCodeAt(0) % 2 ? 'av alt' : 'av');
 
+  const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Graduate student'];
+
+  // Copies the signed-in student's Google name/photo and saved profile into D.me, and measures
+  // walking times on the map from their hall.
+  function applyUser() {
+    const u = AUTH.user || {}, p = AUTH.profile || {};
+    const first = u.given || (u.name || '').split(' ')[0] || '';
+    Object.assign(D.me, {
+      email: u.email || '', picture: u.picture || '', first,
+      name: first ? first + (u.family ? ' ' + u.family[0] + '.' : '') : '',
+      initial: (first || u.email || '?')[0].toUpperCase(),
+      year: p.year || '', hall: D.halls.some((h) => h.id === p.hall) ? p.hall : 'webb', since: p.since || null
+    });
+    const home = hallById(D.me.hall);
+    D.halls.forEach((h) => {
+      h.home = h.id === home.id;
+      // ~0.24 minutes per map unit matches the walking times shown in the design.
+      h.mins = h.home ? 0 : Math.max(2, Math.round(Math.hypot(h.left - home.left, h.top - home.top) * 0.24));
+      h.walk = h.home ? 'Your hall' : `~${h.mins} min walk`;
+      h.label = h.home ? 'You · ' + h.short : h.short;
+    });
+  }
+  const myLobby = () => hallById(D.me.hall).name + ' lobby';
+
+  const stars = (l) => (typeof l.rating === 'number' ? '★ ' + l.rating.toFixed(1) : 'New seller');
+
   function myAsListing(m) {
-    return { ...m, hall: D.me.hall, seller: D.me.name, year: D.me.year, rating: D.me.rating, rentals: 0, owner: 'me' };
+    return { ...m, hall: D.me.hall, seller: D.me.name, year: D.me.year, rating: null, rentals: 0, owner: 'me' };
   }
   function market() {
     return D.listings.concat(S.myListings.filter((m) => m.status === 'Available').map(myAsListing));
@@ -104,7 +133,7 @@
 
   function renderTabbar(route) {
     const tabs = [
-      ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'AI Room'], ['sell', '#/sell', I.plus, 'List'],
+      ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'Room Preview'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
     const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
@@ -127,6 +156,9 @@
     let items = all.filter((l) => (!cur || l.hall === cur.id) && (S.cat === 'all' || catOf(l) === S.cat));
     if (q) items = items.filter((l) => (nameOf(l) + ' ' + l.seller + ' ' + hallById(l.hall).name).toLowerCase().includes(q));
     items.sort(ui.sort === 'price' ? (a, b) => a.sem - b.sem : (a, b) => hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem);
+    // One card per kind of item: keep the closest (or cheapest, when sorting by price) listing of each, and leave your own listings to My Account.
+    const seenTypes = new Set();
+    items = items.filter((l) => l.owner !== 'me' && !seenTypes.has(l.type) && seenTypes.add(l.type));
     const title = cur ? 'At ' + cur.name : 'Browse listings';
     const n = cur ? count(cur.id) : 0;
     const pill = cur ? (cur.home ? `${n} listings in your building` : `${n} listings at ${cur.name} · ${cur.walk}`) : 'Tap a hall to see what Trojans there are renting out';
@@ -134,18 +166,13 @@
     const nl = next && findListing(next.listingId);
 
     return `${topbar()}
-    <div class="map">
-      <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
-      ${D.halls.map((h) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${esc(h.short)}</button>`).join('')}
-    </div>
-    <div class="map-pill"><span class="ico">${I.pin.replace('<svg', '<svg width="18" height="18"')}</span><span class="txt">${esc(pill)}</span>${cur ? '<button type="button" class="chip-btn" data-action="hall" data-id="">All halls</button>' : ''}</div>
-    <section class="hero">
-      <p class="eyebrow">Student-to-student rentals</p>
-      <h2>TroShare</h2>
-      <div class="rule"></div>
-      <p>Rent dorm essentials from other USC students by the semester. No company in the middle — just Trojans.</p>
-      <button type="button" class="btn btn-gold" data-action="scroll-list">Browse listings</button>
-      <a class="btn btn-outline-white" href="#/sell">List your stuff</a>
+    <section class="section" id="listings">
+      <div class="section-head"><h2>${esc(title)}</h2><span class="sub">${items.length} item${items.length === 1 ? '' : 's'}</span></div>
+      <label class="search"><span class="sr-only">Search listings</span>${I.search}<input type="search" placeholder="Lamps, fans, bean bags…" value="${esc(ui.q)}" data-input="q" autocomplete="off"></label>
+      <div class="chips" role="group" aria-label="Category">${D.categories.map((c) => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-action="cat" data-id="${c.id}" aria-pressed="${S.cat === c.id}">${c.label}</button>`).join('')}</div>
+      <div class="section-head"><span class="sub">${cur ? 'Only ' + esc(cur.name) + ' · tap “All halls” on the map below for everything' : 'From USC students across campus'}</span>
+        <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
+      ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : `<p class="empty">${q ? 'No listings match. Try another search.' : 'Nothing here yet. Try another hall on the map.'}</p>`}
     </section>
     ${nl ? `<section class="section">
       <div class="section-head"><h2>Next handoff</h2><a class="link" href="#/chat/${next.thread}">Chat →</a></div>
@@ -154,13 +181,14 @@
         <span class="grow"><span class="t-serif">${esc(nameOf(nl))}</span><span class="meta">From ${esc(nl.seller)} · ${next.handoff === 'drop' ? 'Delivered' : 'Pickup'}</span><span class="meta">${esc(next.when)} · ${esc(next.where)}</span></span>
         <span class="badge">${esc(next.status)}</span>
       </a></section>` : ''}
-    <section class="section" id="listings">
-      <div class="section-head"><h2>${esc(title)}</h2><span class="sub">${items.length} item${items.length === 1 ? '' : 's'}</span></div>
-      <label class="search"><span class="sr-only">Search listings</span>${I.search}<input type="search" placeholder="Lamps, fans, bean bags…" value="${esc(ui.q)}" data-input="q" autocomplete="off"></label>
-      <div class="chips" role="group" aria-label="Category">${D.categories.map((c) => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-action="cat" data-id="${c.id}" aria-pressed="${S.cat === c.id}">${c.label}</button>`).join('')}</div>
-      <div class="section-head"><span class="sub">${cur ? 'Only ' + esc(cur.name) + ' · tap “All halls” on the map for everything' : 'From USC students across campus'}</span>
-        <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
-      ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : `<p class="empty">${q ? 'No listings match. Try another search.' : 'Nothing here yet. Try another hall on the map.'}</p>`}
+    <div class="map">
+      <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
+      ${D.halls.map((h) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${esc(h.label)}</button>`).join('')}
+    </div>
+    <div class="map-pill"><span class="ico">${I.pin.replace('<svg', '<svg width="18" height="18"')}</span><span class="txt">${esc(pill)}</span>${cur ? '<button type="button" class="chip-btn" data-action="hall" data-id="">All halls</button>' : ''}</div>
+    <section class="hero">
+      <p class="eyebrow">Student-to-student rentals</p>
+      <h2 class="hero-title">TroShare</h2>
     </section>
     <p class="footer">A peer-to-peer marketplace for USC students.<br>Rent what you need, share what you don't — Trojan to Trojan.</p>`;
   }
@@ -182,14 +210,14 @@
     const pay = ui.split ? amt / 2 : amt;
     return `${topbar(nameOf(l), '#/home')}
     <div class="photo"><img src="${esc(imgOf(l))}" alt="${esc(nameOf(l))}, the seller's actual item"><span class="badge">${esc(l.condition)}</span>
-      <a class="fit-btn" href="#/fit/${encodeURIComponent(id)}">${I.viewfinder}See it in your room</a>
+      ${AR_MODELS[l.type] ? arButton(l, 'AR Preview', 'fit-btn') : ''}
       ${mine ? '' : `<button type="button" class="icon-btn" data-action="fav" data-id="${id}" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites" style="position:absolute;top:8px;left:8px;color:var(--cardinal)">${I.heart(fav)}</button>`}</div>
     <section class="section">
       <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2><p class="sub" style="margin:4px 0 0">${esc(typeOf(l).blurb)}</p></div>
       <div class="card pad row">
         <span class="${avClass(l.seller)}">${esc(initial(l.seller))}</span>
         <span class="grow"><span class="row" style="gap:6px;font-weight:700">${esc(l.seller)} ${I.verified}</span>
-          <span class="meta">${esc(l.year)} · Verified USC student · ★ ${l.rating.toFixed(1)}${l.rentals ? ' · ' + l.rentals + ' rentals' : ''}</span>
+          <span class="meta">${esc(l.year)} · Verified USC student · ${stars(l)}${l.rentals ? ' · ' + l.rentals + ' rentals' : ''}</span>
           <span class="where">${I.pin}${esc(h.name)} · ${esc(h.walk)}</span></span>
         ${mine ? '' : `<button type="button" class="btn btn-outline btn-small" data-action="message" data-id="${id}">Message</button>`}
       </div>
@@ -225,9 +253,9 @@
       ${rows.map(({ c, l }) => {
         const amt = c.plan === 'sem' ? l.sem : l.year1;
         return `<div class="card pad" style="display:flex;flex-direction:column;gap:12px">
-          <div class="row"><span class="${avClass(l.seller)} sm" style="width:32px;height:32px">${esc(initial(l.seller))}</span><span class="grow"><span class="row" style="gap:6px;font-weight:700">From ${esc(l.seller)} · ${esc(l.year)} ${I.verified}</span></span><span class="meta">★ ${l.rating.toFixed(1)}</span></div>
+          <div class="row"><span class="${avClass(l.seller)} sm" style="width:32px;height:32px">${esc(initial(l.seller))}</span><span class="grow"><span class="row" style="gap:6px;font-weight:700">From ${esc(l.seller)} · ${esc(l.year)} ${I.verified}</span></span><span class="meta">${stars(l)}</span></div>
           <div class="row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${c.plan === 'sem' ? '1 Semester' : 'Full year'}</span></span><span style="font-weight:700">${money(amt)}</span></div>
-          <div class="row" style="justify-content:space-between"><span class="meta"><b>${c.handoff === 'drop' ? 'Delivered' : 'Pickup'}</b> · ${c.handoff === 'drop' ? 'Webb Tower lobby' : esc(D.pickupSpots[l.hall])}</span><button type="button" class="link" data-action="remove" data-id="${l.id}" style="font-size:13px">Remove</button></div>
+          <div class="row" style="justify-content:space-between"><span class="meta"><b>${c.handoff === 'drop' ? 'Delivered' : 'Pickup'}</b> · ${c.handoff === 'drop' ? esc(myLobby()) : esc(D.pickupSpots[l.hall])}</span><button type="button" class="link" data-action="remove" data-id="${l.id}" style="font-size:13px">Remove</button></div>
         </div>`;
       }).join('')}
       <div class="card pad" style="display:flex;flex-direction:column;gap:8px">
@@ -328,21 +356,21 @@
     const listings = S.myListings.map((m) => `<div class="list-row"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">${m.renter ? 'Rented to ' + esc(m.renter) + ' · ' + money(m.sem) : 'Listed · ' + money(m.sem) + ' per semester'}</span><span class="meta">${esc(m.condition)} · ${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span><span class="badge ${statusBadge(m.status)}">${esc(m.status)}</span></div>`).join('');
     const viewed = S.viewed.map(findListing).filter(Boolean);
     const favs = S.favorites.map(findListing).filter(Boolean);
-    const bars = [['On-time payment', 4.9], ['Item care', 4.7], ['Communication', 4.8], ['Return on time', 4.8]];
+    const avatar = D.me.picture
+      ? `<img class="av lg av-photo" src="${esc(D.me.picture)}" alt="" referrerpolicy="no-referrer">`
+      : `<span class="av alt lg">${esc(D.me.initial)}</span>`;
     return `${topbar('My Account')}
     <section class="profile" style="padding-top:20px">
-      <div class="row"><span class="av alt lg">${D.me.initial}</span><span class="grow"><span style="font-size:18px;font-weight:700">${esc(D.me.name)}</span><span class="vline">${I.shield}${D.me.year} · Verified USC student · Member since ${D.me.since}</span></span></div>
-      <button type="button" class="res" data-action="residence" style="border:none;text-align:left"><span style="color:var(--cardinal);display:flex">${I.pin.replace('<svg', '<svg width="20" height="20"')}</span><span class="grow"><span style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--gray)">MY RESIDENCE</span><span style="font-size:15px;font-weight:600">${esc(hallById(D.me.hall).name)}</span></span><span style="font-size:13px;font-weight:700;color:var(--cardinal)">Change ›</span></button>
+      <div class="row">${avatar}<span class="grow"><span style="font-size:18px;font-weight:700">${esc(AUTH.user ? AUTH.user.name : '')}</span>
+        <span class="vline">${I.shield}Verified USC student${D.me.since ? ' · Member since ' + D.me.since : ''}</span>
+        <span class="vline" style="opacity:.85">${esc(D.me.email)}</span></span></div>
     </section>
     <div style="height:4px;background:var(--gold)"></div>
     <section class="section">
-      <div class="card pad" style="display:flex;flex-direction:column;gap:12px">
-        <div class="section-head"><h2 class="h2" style="font-size:20px">My rating</h2><span class="sub">${D.me.reviews} reviews</span></div>
-        <div class="row" style="gap:16px;align-items:center">
-          <div style="width:100px;display:flex;flex-direction:column;align-items:center;gap:4px"><span class="serif" style="font-size:42px;font-weight:700;color:var(--cardinal);line-height:1">${D.me.rating}</span><span style="color:#E0A800" aria-label="4.8 out of 5 stars">★★★★★</span><span class="meta" style="text-align:center">Rated by other Trojans</span></div>
-          <div class="grow" style="gap:8px">${bars.map(([k, v]) => `<div style="display:flex;flex-direction:column;gap:3px;font-size:12px"><div class="row" style="justify-content:space-between"><span>${k}</span><b style="color:var(--cardinal)">${v}</b></div><div class="bar"><div style="width:${v * 20}%"></div></div></div>`).join('')}</div>
-        </div>
-        <div style="background:var(--tile);border-radius:6px;padding:10px 12px;font-size:13px">“Returned my bean bag clean and on time. Great renter!” <span class="meta">— Maya K., Junior</span></div>
+      ${profileForm('Save changes')}
+      <div class="card pad stack">
+        <div class="section-head"><h2 class="h2" style="font-size:20px">My rating</h2></div>
+        <p class="meta" style="margin:0;font-size:13px">No reviews yet. After each rental, the other student rates how it went, and your rating shows up here for sellers to see.</p>
       </div>
       <div class="card pad" style="display:flex;flex-direction:column;gap:10px">
         <h2 class="h2" style="font-size:20px">My rentals</h2>
@@ -354,20 +382,49 @@
       <div class="card pad" style="display:flex;flex-direction:column;gap:4px"><h2 class="h2" style="font-size:20px">Favorites</h2>
         ${favs.length ? favs.map((l) => `<div class="list-row"><a class="row grow" href="#/item/${l.id}" style="flex-direction:row;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta"><b style="color:var(--cardinal)">${money(l.sem)}/sem</b> · ${esc(l.seller)} · ${esc(hallById(l.hall).name)}</span></span></a><button type="button" class="icon-btn" style="color:var(--cardinal)" data-action="fav" data-id="${l.id}" aria-label="Remove ${esc(nameOf(l))} from favorites">${I.heart(true)}</button></div>`).join('') : '<p class="empty">Tap the heart on a listing to save it.</p>'}
       </div>
-      <div class="card pad" style="display:flex;flex-direction:column;gap:2px"><h2 class="h2" style="font-size:20px;margin-bottom:6px">Payments &amp; payouts</h2>
-        <div class="list-row"><span class="paytag" style="background:#1A1F71">VISA</span><span class="grow"><b>Visa •••• 4242</b><span class="meta">Pays for rentals</span></span><span class="badge" style="background:var(--gold);color:var(--ink)">Default</span></div>
-        <div class="list-row"><span class="paytag" style="background:#000">PAY</span><span class="grow"><b>Apple Pay</b><span class="meta">Linked to iPhone</span></span></div>
-        <div class="list-row"><span class="paytag" style="background:var(--cardinal);color:var(--gold)">$</span><span class="grow"><b>Payout account</b><span class="meta">Where your listing earnings go</span></span></div>
+      <div class="card pad stack"><h2 class="h2" style="font-size:20px">Payments &amp; payouts</h2>
+        <p class="meta" style="margin:0;font-size:13px">Paying for rentals and getting paid for your listings is coming soon. For now, settle up with the other student directly.</p>
       </div>
       <button type="button" class="btn btn-cardinal" data-action="logout">Log out</button>
-      <button type="button" class="btn btn-outline" data-action="reset">Reset demo data</button>
+      <div class="card pad stack">
+        <span class="label">Demo tools</span>
+        <span class="meta">Fill your account with sample rentals, chats and listings to try the app, or clear everything you've done on this device.</span>
+        <div class="row" style="gap:8px"><button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="sample-data">Load sample activity</button><button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="reset">Clear my activity</button></div>
+      </div>
     </section>
     <p class="footer">A peer-to-peer marketplace for USC students.<br>Rent what you need, share what you don't — Trojan to Trojan.</p>`;
   }
 
+  function profileForm(submitLabel) {
+    const saved = (AUTH.profile && AUTH.profile.hall) || '';
+    return `<form class="card pad stack" data-form="profile">
+      <h2 class="h2" style="font-size:20px">Your profile</h2>
+      <label class="label" for="f-year">Class year</label>
+      <select id="f-year" name="year" class="input" required>
+        <option value="" ${D.me.year ? '' : 'selected'} disabled>Choose…</option>
+        ${YEARS.map((y) => `<option ${D.me.year === y ? 'selected' : ''}>${y}</option>`).join('')}
+      </select>
+      <label class="label" for="f-hall">Where you live</label>
+      <select id="f-hall" name="hall" class="input" required>
+        <option value="" ${saved ? '' : 'selected'} disabled>Choose your residence hall…</option>
+        ${D.halls.map((h) => `<option value="${h.id}" ${saved === h.id ? 'selected' : ''}>${esc(h.name)}</option>`).join('')}
+      </select>
+      <span class="meta">Sellers see your first name, last initial, class year and hall. Your email stays private.</span>
+      <button type="submit" class="btn btn-cardinal">${esc(submitLabel)}</button>
+    </form>`;
+  }
+
+  function welcomeScreen() {
+    return `${topbar('Welcome')}
+    <section class="section">
+      <div><h2 class="serif" style="margin:0;font-size:28px">Welcome, ${esc(D.me.first || 'Trojan')}!</h2>
+        <p class="sub" style="margin:6px 0 0">You're signed in as ${esc(D.me.email)}. Two quick details so we can show what's near you.</p></div>
+      ${profileForm('Start using TroShare')}
+    </section>`;
+  }
+
   /* ---------- AI room planner + "see it in your room" ---------- */
   // Room analysis goes through TroShare's proxy (proxy/worker.js), which holds the Anthropic key.
-  const ROOM_API = 'https://troshare-room-proxy.thomas-haihang-du.workers.dev/analyze-room';
   const ROOM_MAX = 5;
   const SAMPLE_ROOM = 'images/sample-room.jpg';
   // Starting placement per item type: [longest side as a fraction of the photo width, vertical center (fraction of height)].
@@ -405,7 +462,19 @@
       action = `<button type="button" class="btn btn-cardinal" data-action="analyze" ${room.photos.length ? '' : 'disabled'}>${a ? 'Analyze again' : 'Get recommendations'}</button>
         ${room.photos.length ? '' : '<span class="note">Add at least one photo first.</span>'}`;
     }
-    return `${topbar('AI Room')}
+    const tab = ui.roomTab === 'rec' ? 'rec' : 'ar';
+    const tabs = `<div class="tabs2 room-tabs" role="tablist" aria-label="Room Preview">
+        <button type="button" role="tab" id="room-tab-ar" aria-controls="room-panel" class="${tab === 'ar' ? 'on' : ''}" aria-selected="${tab === 'ar'}" data-action="room-tab" data-id="ar">AR Preview</button>
+        <button type="button" role="tab" id="room-tab-rec" aria-controls="room-panel" class="${tab === 'rec' ? 'on' : ''}" aria-selected="${tab === 'rec'}" data-action="room-tab" data-id="rec">Recommendations</button>
+      </div>`;
+    if (tab === 'ar') {
+      return `${topbar('Room Preview')}
+    <section class="section">${tabs}</section>
+    <div id="room-panel" role="tabpanel" aria-labelledby="room-tab-ar">${arPreviewPanel()}</div>`;
+    }
+    return `${topbar('Room Preview')}
+    <section class="section">${tabs}</section>
+    <div id="room-panel" role="tabpanel" aria-labelledby="room-tab-rec">
     <section class="section">
       <div><h2 class="serif" style="margin:0;font-size:26px">Plan your room</h2>
         <p class="sub" style="margin:6px 0 0">Add a few photos of your room from different corners. Claude looks at what's there and suggests what to rent from other Trojans, and you can preview each item in your photos.</p></div>
@@ -415,7 +484,22 @@
       ${room.error ? `<div class="callout" role="alert">${I.shield}<span>${esc(room.error)}</span></div>` : ''}
     </section>
     ${a ? roomResults(a) : ''}
-    <p class="footer">Your photos are sent to Anthropic to be analyzed and aren't stored by TroShare.<br>AI suggestions can miss things, so check sizes before you rent.</p>`;
+    <p class="footer">Your photos are sent to Anthropic to be analyzed and aren't stored by TroShare.<br>AI suggestions can miss things, so check sizes before you rent.</p>
+    </div>`;
+  }
+
+  // AR Preview tab: pick a kind of furniture and preview it at real size with the existing AR viewer.
+  function arPreviewPanel() {
+    const picks = Object.keys(AR_MODELS).map((type) => ({ type, l: bestListing(type) })).filter((p) => p.l);
+    if (!picks.length) return '<p class="empty">No 3D previews yet.</p>';
+    const cur = picks.find((p) => p.type === ui.arType) || picks[0];
+    return `<section class="section">
+      <div><h2 class="serif" style="margin:0;font-size:26px">Preview furniture in AR</h2>
+        <p class="sub" style="margin:6px 0 0">Choose an item and place it in your room at real size with your phone’s camera.</p></div>
+      <div class="chips ar-picks" role="radiogroup" aria-label="Item to preview">${picks.map((p) =>
+        `<button type="button" role="radio" class="chip ${p === cur ? 'on' : ''}" aria-checked="${p === cur}" data-action="ar-pick" data-id="${esc(p.type)}">${esc(typeOf(p.l).name)}</button>`).join('')}</div>
+      ${arBody(cur.l)}
+    </section>`;
   }
 
   function roomResults(a) {
@@ -450,18 +534,14 @@
       return { id, count: ps.length, min: Math.min(...ps), max: Math.max(...ps) };
     });
     try {
-      const res = await fetch(ROOM_API, {
+      const json = await AUTH.call('/analyze-room', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ photos: room.photos.map((url) => url.split(',')[1]), hall: hallById(D.me.hall).name, catalog })
       });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) throw new Error((json && json.error && json.error.message) || `The room planner had a problem (${res.status}). Try again.`);
       if (!json || !Array.isArray(json.recommendations)) throw new SyntaxError('bad shape');
       room.analysis = json;
     } catch (err) {
       if (err instanceof SyntaxError) room.error = "Couldn't read Claude's answer. Try again.";
-      else if (err instanceof TypeError) room.error = "Couldn't reach the room planner. Check your connection and try again.";
       else room.error = err.message;
     }
     room.busy = false;
@@ -534,17 +614,21 @@
 
   // One tap opens the rear camera and puts the model on the floor.
   // iPhone uses AR Quick Look. Android uses Scene Viewer. A computer has no phone camera, so it shows the model instead.
-  function arButton(l, label) {
+  // cls replaces the default gold button look (the product photo uses its own pill).
+  function arButton(l, label, cls) {
     const img = `<img src="${esc(imgOf(l))}" alt="">`;
+    const look = cls || 'btn btn-gold';
+    const icon = cls ? I.viewfinder : '';
     if (onIPhone()) {
-      return `<a class="btn btn-gold ar-launch" rel="ar" href="models/${l.type}.usdz#allowsContentScaling=0">${img}${esc(label)}</a>`;
+      // AR Quick Look needs an <img> as the link's first child.
+      return `<a class="${look} ar-launch" rel="ar" href="models/${l.type}.usdz#allowsContentScaling=0">${img}${esc(label)}</a>`;
     }
     if (onAndroid()) {
       const file = new URL('models/' + l.type + '.glb', location.href).href;
       const scene = 'https://arvr.google.com/scene-viewer/1.0?mode=ar_preferred&disableScaling=true&file=' + encodeURIComponent(file) + '&title=' + encodeURIComponent(nameOf(l));
-      return `<a class="btn btn-gold ar-launch" href="${scene}">${img}${esc(label)}</a>`;
+      return `<a class="${look} ar-launch" href="${scene}">${cls ? icon : img}${esc(label)}</a>`;
     }
-    return `<a class="btn btn-gold" href="#/ar/${l.id}">${esc(label)}</a>`;
+    return `<a class="${look}" href="#/ar/${l.id}">${icon}${esc(label)}</a>`;
   }
 
   function arScreen(id) {
@@ -552,22 +636,28 @@
     if (!l) return `${topbar('Preview in AR', '#/room')}<p class="empty">This listing is gone.</p>`;
     const size = AR_MODELS[l.type];
     if (!size) return `${topbar('Preview in AR', '#/item/' + encodeURIComponent(id))}<p class="empty">No 3D preview for this item yet.</p>`;
+    const back = (room.analysis ? '#/room' : '#/item/' + encodeURIComponent(id));
+    return `${topbar('Preview in AR', back)}
+    <section class="section">
+      <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2></div>
+      ${arBody(l)}
+    </section>`;
+  }
+
+  function arBody(l) {
+    const size = AR_MODELS[l.type];
+    const id = l.id;
     const place = placementFor(l.type);
-    const back = room.analysis ? '#/room' : '#/item/' + encodeURIComponent(id);
     const src = 'models/' + l.type;
     const spot = place
       ? 'Suggested spot: ' + place.replace(/[. ]*$/, '') + '. Aim the rear camera there. When a circle appears on the floor, tap it and the furniture sits down at real size.'
       : 'Aim the rear camera at the floor. When a circle appears, tap it and the furniture sits down at real size.';
     const phone = onIPhone() || onAndroid();
-    return `${topbar('Preview in AR', back)}
-    <section class="section">
-      <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2>
-        <p class="sub" style="margin:6px 0 0">${esc(spot)}</p></div>
+    return `<p class="sub" style="margin:0">${esc(spot)}</p>
       ${phone ? arButton(l, 'Open camera and place on the floor') : `<model-viewer class="ar-stage" id="ar-model" src="${src}.glb" ios-src="${src}.usdz" alt="${esc(nameOf(l))} in 3D, ${esc(size)}" camera-controls touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>`}
-      <p class="meta">This is a typical ${esc(typeOf(l).name)}, ${esc(size)}, not a scan of the seller's photo. ${phone ? 'The camera is your phone’s rear camera. Move slowly so it can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page in Safari on your iPhone, then tap Preview in AR.'}</p>
+      <p class="meta">This is a typical ${esc(typeOf(l).name)}, ${esc(size)}, not a scan of the seller's photo. ${phone ? 'The camera is your phone’s rear camera. Move slowly so it can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page in Safari on your iPhone, then tap AR Preview.'}</p>
       <div class="card pad row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
-        ${l.owner === 'me' ? '' : `<button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>
-    </section>`;
+        ${l.owner === 'me' ? '' : `<a class="btn btn-outline btn-small" href="#/item/${encodeURIComponent(id)}">View</a><button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>`;
   }
 
   function resetFit(l, id) {
@@ -704,7 +794,8 @@
   function render() {
     const { route, id } = parse();
     let html;
-    switch (route) {
+    if (AUTH.needsSetup()) html = welcomeScreen();
+    else switch (route) {
       // Browse now lives on Home; old #/browse links open Home at the list.
       case 'browse': ui.toList = true; html = homeScreen(); break;
       case 'item': html = itemScreen(id); break;
@@ -799,10 +890,10 @@
           const l = findListing(c.listingId); if (!l) return;
           const rid = 'r' + Date.now() + made.length;
           const price = c.plan === 'sem' ? l.sem : l.year1;
-          const where = c.handoff === 'drop' ? 'Webb Tower lobby' : D.pickupSpots[l.hall];
+          const where = c.handoff === 'drop' ? myLobby() : D.pickupSpots[l.hall];
           const t = ensureThread(l.seller, l.year, { rentalId: rid, role: 'renting', listingId: c.listingId });
           t.msgs.push({ from: 'sys', text: 'You rented this · ' + (ui.splitCart ? 'split with roommate' : 'paid in full') });
-          t.msgs.push({ from: 'them', text: `Hi Tommy, thanks for renting my ${nameOf(l).toLowerCase()}! ${c.handoff === 'drop' ? 'I can drop it off at your lobby — what time works?' : 'You can pick it up at ' + where + '. When works for you?'}` });
+          t.msgs.push({ from: 'them', text: `Hi ${D.me.first || 'there'}, thanks for renting my ${nameOf(l).toLowerCase()}! ${c.handoff === 'drop' ? 'I can drop it off at your lobby — what time works?' : 'You can pick it up at ' + where + '. When works for you?'}` });
           t.unread = (t.unread || 0) + 1;
           S.rentals.unshift({ id: rid, listingId: l.id, plan: c.plan, price, handoff: c.handoff, split: ui.splitCart, status: 'Scheduled', when: 'Move-in day · time TBD', where, thread: t.id });
           made.push(t.id);
@@ -824,9 +915,16 @@
         break;
       }
       case 'acc-tab': ui.accTab = id; rerender(); break;
-      case 'residence': toast('Your hall comes from your USC Housing assignment'); break;
+      case 'room-tab': ui.roomTab = id; rerender(); break;
+      case 'ar-pick': ui.arType = id; rerender(); break;
+      case 'residence': { const f = app.querySelector('[data-form=profile]'); if (f) f.scrollIntoView({ behavior: 'smooth' }); break; }
+      case 'sample-data':
+        if (window.confirm('Replace your activity on this device with sample rentals, chats and listings?')) {
+          S = D.sampleState(D.me.first, hallById(D.me.hall).name); save(); location.hash = '#/home'; render(); toast('Sample activity loaded');
+        }
+        break;
       case 'reset':
-        if (window.confirm('Reset TroShare to the original demo data?')) { S = D.seedState(); ui.draft = null; save(); location.hash = '#/home'; render(); toast('Demo data reset'); }
+        if (window.confirm('Clear your rentals, chats, listings and favorites on this device?')) { S = D.emptyState(); ui.draft = null; save(); location.hash = '#/home'; render(); toast('Activity cleared'); }
         break;
       case 'logout':
         if (window.TS_INTRO) window.TS_INTRO.logout();
@@ -894,6 +992,17 @@
   app.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
+    if (f.dataset.form === 'profile') {
+      const year = f.elements.year.value, hall = f.elements.hall.value;
+      if (!year || !hall) return toast('Choose your class year and hall');
+      const btn = f.querySelector('button[type=submit]');
+      btn.disabled = true;
+      const firstTime = AUTH.needsSetup();
+      AUTH.saveProfile({ year, hall })
+        .then(() => { applyUser(); S.hall = D.me.hall; save(); if (firstTime) location.hash = '#/home'; render(); toast(firstTime ? 'You are all set' : 'Profile saved'); })
+        .catch((err) => { btn.disabled = false; toast(err.message); });
+      return;
+    }
     if (f.dataset.form === 'chat') {
       const input = f.querySelector('input');
       const text = input.value.trim();
@@ -946,7 +1055,15 @@
   }
 
   window.addEventListener('hashchange', () => { sessionStorage.setItem('ts-nav', '1'); render(); });
+  // Signing in or out switches whose activity is shown.
+  const switchUser = () => { applyUser(); S = load(); ui.draft = null; room.analysis = null; render(); };
+  window.addEventListener('ts-signed-in', switchUser);
+  window.addEventListener('ts-signed-out', switchUser);
+  applyUser();
+  S = load();
   render();
+  // Make sure the saved session is still valid and pick up profile changes made on another device.
+  if (AUTH.signedIn()) AUTH.refresh().then(() => { const before = D.me.hall; applyUser(); if (S.hall === before) { S.hall = D.me.hall; save(); } rerender(); }).catch(() => { /* a 401 signs out via ts-signed-out */ });
 
   if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
     document.body.classList.add('native-app');

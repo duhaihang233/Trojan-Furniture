@@ -1,12 +1,12 @@
 // TroShare seed data. Everything here is sample data for the demo.
 window.TS_DATA = (() => {
   const halls = [
-    { id: 'webb', name: 'Webb Tower', short: 'You · Webb', left: 29, top: 47, walk: 'Your hall', mins: 0, home: true },
-    { id: 'village', name: 'USC Village', short: 'Village', left: 43, top: 31, walk: '~5 min walk', mins: 5 },
-    { id: 'gateway', name: 'University Gateway', short: 'Gateway', left: 78, top: 38, walk: '~10 min walk', mins: 10 },
-    { id: 'newnorth', name: 'New North', short: 'New North', left: 77, top: 53, walk: '~8 min walk', mins: 8 },
-    { id: 'pardee', name: 'Pardee Tower', short: 'Pardee', left: 72, top: 66, walk: '~9 min walk', mins: 9 },
-    { id: 'parkside', name: 'Parkside', short: 'Parkside', left: 36, top: 92, walk: '~12 min walk', mins: 12 }
+    { id: 'webb', name: 'Webb Tower', short: 'Webb', left: 29, top: 47 },
+    { id: 'village', name: 'USC Village', short: 'Village', left: 43, top: 31 },
+    { id: 'gateway', name: 'University Gateway', short: 'Gateway', left: 78, top: 38 },
+    { id: 'newnorth', name: 'New North', short: 'New North', left: 77, top: 53 },
+    { id: 'pardee', name: 'Pardee Tower', short: 'Pardee', left: 72, top: 66 },
+    { id: 'parkside', name: 'Parkside', short: 'Parkside', left: 36, top: 92 }
   ];
 
   const types = {
@@ -64,11 +64,20 @@ window.TS_DATA = (() => {
 
   const findId = (seller, type) => listings.find((l) => l.seller === seller && l.type === type).id;
 
-  const me = { name: 'Tommy T.', initial: 'T', year: 'Freshman', hall: 'webb', since: 2025, rating: 4.8, reviews: 18 };
+  // The signed-in student. Filled in from their USC Google account and profile (see app.js applyUser).
+  const me = { name: '', first: '', initial: '', email: '', picture: '', year: '', hall: 'webb', since: null };
 
-  const seedState = () => ({
+  // A brand-new account: nothing rented, listed or saved yet.
+  const emptyState = () => ({
+    version: 1, hall: null, cat: 'all', cart: [], favorites: [], myListings: [], rentals: [], threads: [], viewed: []
+  });
+
+  // Optional sample activity for demos (Account → Load sample activity), addressed to the signed-in student.
+  const sampleState = (first, hallName) => JSON.parse(JSON.stringify(sampleTemplate())
+    .replace(/Tommy/g, first || 'there').replace(/Webb Tower lobby/g, (hallName || 'Webb Tower') + ' lobby'));
+  const sampleTemplate = () => ({
     version: 1,
-    hall: null,
+    hall: 'webb',
     cat: 'all',
     cart: [],
     favorites: [findId('Chris W.', 'tv'), findId('Ava L.', 'topper'), findId('Dani R.', 'floor')],
@@ -101,5 +110,5 @@ window.TS_DATA = (() => {
     viewed: [findId('Chris W.', 'tv'), findId('Liam K.', 'floor'), findId('Ava L.', 'topper'), findId('Mia S.', 'cart')]
   });
 
-  return { halls, types, categories, listings, pickupSpots, me, seedState };
+  return { halls, types, categories, listings, pickupSpots, me, emptyState, sampleState };
 })();
