@@ -869,3 +869,20 @@ html, body, #app { background: var(--bg); }
 .more-toggle[aria-expanded="true"]::after { transform: rotate(-90deg); }
 @keyframes easy-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .easy-card.done { animation: none; } }
+
+/* ---------- USC Housing rules check ---------- */
+.housing-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--card-line); background: #fff; font-size: 14px; line-height: 1.4; }
+.housing-head { display: flex; align-items: center; gap: 8px; }
+.housing-head svg { width: 18px; height: 18px; flex: none; }
+.housing-card.ok { border-color: #B7DFC4; background: #F2FBF5; }
+.housing-card.ok .housing-head svg { color: #1E7B45; }
+.housing-card.warn { border-color: #F0D68A; background: #FFFAEB; }
+.housing-card.warn .housing-head svg { color: #8A6100; }
+.housing-card.bad { border-color: #E9A3A3; background: #FDF2F2; }
+.housing-card.bad .housing-head { color: var(--cardinal); }
+.housing-card.bad .housing-head svg { color: var(--cardinal); }
+.housing-card.busy { flex-direction: column; }
+.housing-rule { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; border-top: 1px solid rgba(0, 0, 0, .06); }
+.housing-rule .check { margin-top: 4px; font-weight: 600; }
+.housing-src { font-weight: 700; }
+.housing-note { background: #FFFAEB; }

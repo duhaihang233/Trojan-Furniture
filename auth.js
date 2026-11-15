@@ -34,6 +34,7 @@ window.TS_AUTH = (() => {
     if (!res.ok) {
       const err = new Error((json && json.error && json.error.message) || `Something went wrong (${res.status}). Try again.`);
       err.status = res.status;
+      err.details = json && json.error; // e.g. the USC Housing check's findings
       throw err;
     }
     return json;

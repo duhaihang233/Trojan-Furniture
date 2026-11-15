@@ -29,6 +29,11 @@ Built for the USC **"Building for Trojans"** hackathon.
 - **Easy list** — the List tab starts in Easy list: add a photo and Claude fills in the title, category and
   condition (with a one-line reason), so you only set the price. Tap **Change** to edit what it wrote, or
   switch to **Fill in myself** for the full form. If Claude can't read the photo, the full form opens.
+- **USC Housing rules check** — before an item can be listed, Claude looks at its photos and title and
+  checks them against USC Housing's prohibited possessions (2026-27 Living Agreement, section O). Items
+  USC Housing prohibits (candles, space heaters, halogen or non-LED lamps, e-scooters, weapons…) can't be
+  listed. When the photos can't show it (say, the bulb type), the seller confirms it. Items allowed only in
+  some rooms (cooking appliances, mini fridges) can be listed, and their listing tells renters the rule.
 - **AI Generate AR model** — turn it on when listing and Claude builds a 3D model of your item from your
   photos in the background (about a minute), in the same style as the built-in AR models. The listing goes
   live right away; its card on Home shows **AR: In progress**, **AR: Success** or **AR: Failed** (with Retry).

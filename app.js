@@ -84,6 +84,7 @@
       id: x.id, type: x.type, title: x.title, condition: x.condition, sem: x.sem, year1: x.year1, handoff: x.handoff,
       photo: x.photos[0] || null, photos: x.photos, hall: x.seller.hall, seller: x.seller.name, year: x.seller.year,
       rating: typeof x.seller.rating === 'number' ? x.seller.rating : null, reviews: x.seller.reviews || 0, rentals: 0, owner: x.mine ? 'me' : 'other', status: x.status, openToSell: x.openToSell, buyPrice: x.buyPrice || null, createdAt: x.createdAt,
+      housing: x.housing || [], // USC Housing restrictions renters should know
       ar: x.ar // AI AR model: null, or { status: 'in_progress' | 'success' | 'failed', error }
     };
   }
@@ -403,6 +404,7 @@
           <span class="where">${I.pin}${esc(h.name)} · ${esc(h.walk)}</span></span>
         ${mine ? '' : `<button type="button" class="btn btn-outline btn-small" data-action="message" data-id="${esc(id)}">Message</button>`}
       </div>
+      ${(l.housing || []).map((h) => `<div class="callout housing-note">${I.shield}<span><b>${esc(h.label)}:</b> ${esc(h.note)}</span></div>`).join('')}
       ${mine ? `<div class="callout">${I.shield}<span>${l.status === 'rented' ? '<b>Rented out.</b> It’s off the market until it comes back. Follow it under My Account → Orders.' : l.status === 'sold' ? '<b>Sold.</b> Other students can’t see it any more.' : l.status === 'paused' ? '<b>Hidden.</b> Other students can’t see this listing until you show it again.' : 'This is your listing. It\'s visible to verified USC students. Manage it from <a href="#/account">My Account</a>.'}</span></div>
       <button type="button" class="btn btn-cardinal btn-small" data-action="edit-listing" data-id="${esc(id)}">Edit listing</button>
       <div class="row" style="gap:8px">
@@ -568,6 +570,7 @@
       <div class="field"><label for="f-title">Title</label><input id="f-title" class="input" data-input="title" value="${esc(d.title)}" maxlength="40" placeholder="${esc(TITLE_EXAMPLES[d.cat] || 'What are you renting out?')}"></div>
       <div class="field"><span class="label">Condition</span>
         <div class="pills" role="radiogroup" aria-label="Condition">${conds.map((c) => `<button type="button" role="radio" class="pill ${d.condition === c ? 'on' : ''}" aria-checked="${d.condition === c}" data-action="cond" data-id="${c}">${c}</button>`).join('')}</div></div>` : ''}
+      ${housingCard(d)}
       ${showPrice ? `<div class="row" style="gap:10px">
         <div class="field" style="flex:1"><label for="f-sem">Per semester ($)</label><input id="f-sem" class="input" type="number" inputmode="numeric" min="1" data-input="sem" value="${esc(d.sem)}" placeholder="27"></div>
         <div class="field" style="flex:1"><label for="f-yr">Full year ($)</label><input id="f-yr" class="input" type="number" inputmode="numeric" min="1" data-input="year1" value="${esc(d.year1)}" placeholder="${d.sem ? Math.round(Number(d.sem) * 1.8) || 49 : 49}"></div>
@@ -602,11 +605,72 @@
         else {
           Object.assign(d, { title: x.title, cat: x.category, condition: x.condition, easyEdit: false });
           d.ai = { status: 'done', note: x.conditionNote, n: d.photos.length };
+          setTimeout(() => scheduleCheck(d, 0), 0);
         }
       })
       .catch((err) => { if (seq === d.aiSeq) d.ai = { status: 'error', message: err.message }; })
       .finally(() => { if (seq === d.aiSeq && parse().route === 'sell') rerenderKeepFocus(); });
   }
+  /* ---- USC Housing rules check (server: proxy/housing.js) ---- */
+  // What was checked: the title and the photos. When either changes, the result no longer applies.
+  const checkSig = (d) => String(d.title || '').trim().toLowerCase() + '|' + d.photos.map((p) => p.length + ':' + p.slice(-24)).join(',');
+  const checkFresh = (d) => !!(d.check && d.check.sig === checkSig(d));
+  let checkTimer = null;
+  // Runs the check a moment after the item settles (a photo added, Claude done, the title typed).
+  function scheduleCheck(d, ms) {
+    clearTimeout(checkTimer);
+    // New listings only: on Edit, kept photos are server links, and the server checks the change on save.
+    if (!d || d !== ui.draft || (!d.photos.length && !String(d.title || '').trim())) return;
+    if (d.ai && d.ai.status === 'busy') return; // Easy list runs it once Claude has filled in the title
+    if (checkFresh(d) && d.check.status !== 'error') return;
+    checkTimer = setTimeout(() => runCheck(d), ms === undefined ? 1200 : ms);
+  }
+  function runCheck(d) {
+    const sig = checkSig(d);
+    const seq = d.checkSeq = (d.checkSeq || 0) + 1;
+    d.check = { status: 'busy', sig };
+    if (formDraft() === d) rerenderKeepFocus();
+    AUTH.call('/listings/check', { method: 'POST', body: JSON.stringify({ photos: d.photos.map((u) => u.split(',')[1]), title: String(d.title || '').trim() }) })
+      .then((r) => { if (seq === d.checkSeq) d.check = { status: 'done', sig, ...r.check }; })
+      .catch((err) => { if (seq === d.checkSeq) d.check = { status: 'error', sig, message: err.message }; })
+      .finally(() => { if (seq === d.checkSeq && formDraft() === d) rerenderKeepFocus(); });
+  }
+  function housingCard(d) {
+    const c = d.check;
+    if (!c || (!d.photos.length && !String(d.title || '').trim())) return '';
+    const head = (cls, icon, title) => `<div class="housing-card ${cls}" role="status"><div class="housing-head">${icon}<b>${title}</b></div>`;
+    const rules = `<a class="housing-src" href="${esc(c.source || 'https://housing.usc.edu/index.php/publication/2026-2027-living-agreement/')}" target="_blank" rel="noopener">USC Housing rules</a>`;
+    if (!checkFresh(d)) return `${head('busy', '<span class="spinner" aria-hidden="true"></span>', 'Checking USC Housing rules…')}</div>`;
+    if (c.status === 'busy') return `${head('busy', '<span class="spinner" aria-hidden="true"></span>', 'Checking USC Housing rules…')}<span class="meta">Making sure USC Housing allows this item. A few seconds.</span></div>`;
+    if (c.status === 'error') return `${head('warn', I.shield, "Couldn't check USC Housing rules")}<span class="meta">${esc(c.message)}</span><button type="button" class="btn btn-outline btn-small" data-action="housing-retry">Check again</button></div>`;
+    if (c.verdict === 'blocked') {
+      return `${head('bad', I.shield, "USC Housing doesn't allow this item")}
+        ${c.blocked.map((b) => `<div class="housing-rule"><b>${esc(b.label)}</b><span class="meta">${esc(b.reason)}</span></div>`).join('')}
+        <span class="meta">It can't be listed on TroShare, because students couldn't keep it in their room. See the ${rules}.</span></div>`;
+    }
+    const confirms = c.confirm.map((x) => `<div class="housing-rule"><b>${esc(x.label)}?</b><span class="meta">${esc(x.reason)}</span>
+        <label class="check"><input type="checkbox" data-input="housing-confirm" data-rule="${esc(x.rule)}" ${(d.housingConfirmed || []).includes(x.rule) ? 'checked' : ''}>${esc(x.confirm)}</label></div>`).join('');
+    const notes = c.restricted.map((x) => `<div class="housing-rule"><b>${esc(x.label)}</b><span class="meta">${esc(x.note)}</span></div>`).join('');
+    if (c.verdict === 'confirm') return `${head('warn', I.shield, 'Confirm one thing for USC Housing')}${confirms}${notes}<span class="meta">USC Housing prohibits: ${esc(c.confirm.map((x) => x.label).join('; '))}. ${rules}.</span></div>`;
+    if (c.verdict === 'restricted') return `${head('warn', I.check, 'Allowed, with a USC Housing limit')}${notes}<span class="meta">Your listing shows this to renters. ${rules}.</span></div>`;
+    return `${head('ok', I.check, 'Allowed in USC Housing')}<span class="meta">Nothing in the ${rules} prohibits this item.</span></div>`;
+  }
+  // Can this be published? Returns a message when not, or null.
+  function housingBlocker(d) {
+    const c = d.check;
+    if (!checkFresh(d) || !c || c.status !== 'done') return null; // the server checks it on publish
+    if (c.verdict === 'blocked') return "USC Housing doesn't allow this item, so it can't be listed";
+    const missing = c.confirm.filter((x) => !(d.housingConfirmed || []).includes(x.rule));
+    if (missing.length) return 'Confirm: ' + missing[0].confirm;
+    return null;
+  }
+  // What publish sends: the token from a check of exactly this content, and what the seller confirmed.
+  const housingPayload = (d) => ({ checkToken: checkFresh(d) && d.check.status === 'done' ? d.check.token : undefined, housingConfirmed: d.housingConfirmed || [] });
+  // A 422 from publish carries the server's own check: show it.
+  function housingRejected(d, err) {
+    if (err && err.details && err.details.housing) d.check = { status: 'done', sig: checkSig(d), ...err.details.housing, token: undefined };
+  }
+
   // Redraw without kicking the seller out of the field they're typing in (e.g. the price).
   function rerenderKeepFocus() {
     const a = document.activeElement;
@@ -2007,7 +2071,7 @@
         const d = formDraft();
         d.photos.splice(Number(id), 1);
         if (d === ui.draft && !d.photos.length && d.ai) { d.ai = null; d.aiSeq = (d.aiSeq || 0) + 1; }
-        rerender(); break;
+        rerender(); scheduleCheck(d); break;
       }
       case 'edit-listing': ui.edit = null; ui.editBack = location.hash || '#/account'; location.hash = '#/edit/' + encodeURIComponent(id); break;
       case 'ar-toggle': ui.draft.ar = !ui.draft.ar; rerender(); break;
@@ -2018,6 +2082,7 @@
       case 'easy-change': ui.draft.easyEdit = true; rerender(); { const t = document.getElementById('f-title'); if (t) t.focus(); } break;
       case 'easy-retry': ui.draft.easyEdit = false; runDraft(ui.draft); break;
       case 'more-toggle': ui.draft.moreOpen = !ui.draft.moreOpen; rerender(); break;
+      case 'housing-retry': runCheck(formDraft()); break;
       case 'ar-start':
         el.disabled = true;
         AUTH.call('/listings/' + encodeURIComponent(id) + '/ar-model', { method: 'POST' })
@@ -2049,11 +2114,16 @@
       if (f && d.photos.length < MAX_LISTING_PHOTOS) compress(f).then((url) => {
         d.photos.push(url);
         const easy = d === ui.draft && d.easy !== false;
-        if (easy && !d.easyEdit && (!d.ai || d.ai.status !== 'done')) runDraft(d); else rerender();
+        if (easy && !d.easyEdit && (!d.ai || d.ai.status !== 'done')) runDraft(d); else { rerender(); scheduleCheck(d); }
       }).catch(() => toast("Couldn't read that photo"));
       return;
     }
     if (k === 'drop' || k === 'pick') { d[k] = el.checked; return; }
+    if (k === 'housing-confirm') {
+      const rule = el.dataset.rule;
+      d.housingConfirmed = (d.housingConfirmed || []).filter((r) => r !== rule).concat(el.checked ? [rule] : []);
+      return;
+    }
     if (k === 'sell') { d.sell = el.checked; rerender(); if (d.sell) { const b = document.getElementById('f-buy'); if (b && !b.value) b.focus(); } return; }
   });
 
@@ -2078,6 +2148,7 @@
       return;
     }
     if (fd && (k === 'title' || k === 'sem' || k === 'year1' || k === 'buy')) fd[k] = el.value;
+    if (fd && k === 'title') scheduleCheck(fd, 1500);
   });
 
   // Return / the blue Search key saves the search and closes the keyboard.
@@ -2155,17 +2226,20 @@
       if (d.sell && !(buy > 0)) return toast('Add a sale price');
       if (!!d.sell !== !!l.openToSell || (d.sell && buy !== l.buyPrice)) { patch.openToSell = !!d.sell; if (d.sell) patch.buyPrice = buy; }
       if (photosChanged(d, l)) patch.photos = d.photos.map((u) => (u.startsWith('data:') ? { data: u.split(',')[1] } : { key: u.split('/').pop() }));
+      if (patch.photos || patch.title) patch.housingConfirmed = d.housingConfirmed || [];
       const back = d.back;
       if (!Object.keys(patch).length) { ui.edit = null; location.hash = back; return toast('No changes'); }
       d.busy = true; rerender();
       AUTH.call('/listings/' + encodeURIComponent(d.id), { method: 'PATCH', body: JSON.stringify(patch) })
         .then((r) => { putListing(r.listing); ui.edit = null; toast(patch.photos && r.listing.ar && r.listing.ar.status === 'in_progress' ? 'Saved. Rebuilding your AR model…' : 'Saved'); location.hash = back; })
-        .catch((err) => { d.busy = false; rerender(); toast(err.message); });
+        .catch((err) => { d.busy = false; housingRejected(d, err); rerender(); toast(err.message); });
       return;
     }
     if (f.dataset.form === 'sell') {
       const d = ui.draft;
       if (d.ai && d.ai.status === 'busy') return toast('Wait a moment: Claude is still filling it in');
+      if (d.check && d.check.status === 'busy' && checkFresh(d)) return toast('Wait a moment: checking USC Housing rules');
+      { const why = housingBlocker(d); if (why) return toast(why); }
       const sem = Math.round(Number(d.sem)), yr = Math.round(Number(d.year1)) || Math.round(sem * 1.8);
       if (!d.title.trim()) return toast('Add a title');
       if (!(sem > 0)) return toast('Add a price per semester');
@@ -2178,6 +2252,7 @@
         method: 'POST',
         body: JSON.stringify({
           type: typeFor(d.cat, d.title), title: d.title.trim(), condition: d.condition, sem, year1: yr,
+          ...housingPayload(d),
           handoff: d.drop && d.pick ? 'both' : (d.drop ? 'drop' : 'pickup'), openToSell: d.sell, buyPrice: buy, generateAr: !!(d.ar && d.photos.length),
           photos: d.photos.map((url) => url.split(',')[1])
         })
@@ -2186,7 +2261,7 @@
         ui.draft = null;
         toast('Published! Other USC students can see it now');
         location.hash = '#/item/' + l.id;
-      }).catch((err) => { d.busy = false; rerender(); toast(err.message); });
+      }).catch((err) => { d.busy = false; housingRejected(d, err); rerender(); toast(err.message); });
     }
   });
 

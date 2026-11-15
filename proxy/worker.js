@@ -9,6 +9,7 @@
 //   the browser builds the model from that description (../armodel.js).
 // - Orders, ratings, notifications and return reminders (orders.js), with Web Push to phones (push.js).
 // - Easy list: Claude fills in a listing's title, category and condition from its photos (easy.js).
+// - USC Housing rules check: items USC Housing prohibits can't be listed (housing.js).
 
 import { DurableObject } from 'cloudflare:workers';
 import { arRequest, cleanArSpec } from './ar.js';
@@ -17,6 +18,7 @@ import {
   listNotifications, markNotificationsRead, savePushSubscription, deletePushSubscription, testPush, remindReturns,
 } from './orders.js';
 import { draftListing } from './easy.js';
+import { checkListing, enforceHousing, housingNotes } from './housing.js';
 
 const ALLOWED_ORIGINS = new Set([
   'https://duhaihang233.github.io',
@@ -157,6 +159,7 @@ export default {
       if (method === 'GET' && path === '/listings') return reply(200, { listings: await listListings(env, session.sub, photoBase) });
       if (method === 'POST' && path === '/listings') return reply(201, { listing: await createListing(request, env, ctx, session, photoBase) });
       if (method === 'POST' && path === '/listings/draft') return reply(200, { draft: await draftListing(request, env, session) });
+      if (method === 'POST' && path === '/listings/check') return reply(200, { check: await checkListing(request, env, session) });
       const am = path.match(/^\/listings\/([A-Za-z0-9_-]{1,40})\/ar-model$/);
       if (am && method === 'GET') return reply(200, await getArModel(env, am[1]));
       if (am && method === 'POST') return reply(200, { listing: await retryArModel(env, ctx, session, am[1], photoBase) });
@@ -191,7 +194,7 @@ export default {
       if (cm && method === 'POST') return reply(201, { messages: await sendMessage(request, env, ctx, session, cm[1]) });
       if (method !== 'POST' || path !== '/analyze-room') return fail(404, 'Not found.');
     } catch (err) {
-      if (err instanceof HttpError) return fail(err.status, err.message);
+      if (err instanceof HttpError) return reply(err.status, { error: { message: err.message, ...(err.details || {}) } });
       throw err;
     }
 
@@ -485,6 +488,7 @@ function listingOut(row, me, photoBase) {
     seller: { name: sellerName(row), year: row.u_year || '', hall: row.u_hall || 'webb', picture: row.u_picture || '', rating: row.s_rating || null, reviews: row.s_reviews || 0 },
     mine: row.owner === me,
     ar: arOut(row),
+    housing: housingNotes(row.housing), // USC Housing restrictions renters should know (e.g. cooking appliances)
   };
 }
 const LISTING_SELECT = `SELECT l.*, u.given, u.family, u.name, u.year AS u_year, u.hall AS u_hall, u.picture AS u_picture,
@@ -560,6 +564,8 @@ async function createListing(request, env, ctx, session, photoBase) {
   const photos = Array.isArray(input.photos) ? input.photos : [];
   if (photos.length > MAX_LISTING_PHOTOS) throw new HttpError(400, `Add up to ${MAX_LISTING_PHOTOS} photos.`);
   const bytes = photos.map(jpegBytes);
+  // USC Housing rules: blocked items stop here; restricted ones are noted on the listing.
+  const housing = await enforceHousing(env, session, photos, fields.title, input.checkToken, input.housingConfirmed);
   // Counted only for valid listings, so fixing a form mistake never locks anyone out.
   if (env.LIMITER) {
     const { success } = await env.LIMITER.limit({ key: 'list:' + session.sub });
@@ -571,10 +577,10 @@ async function createListing(request, env, ctx, session, photoBase) {
 
   const id = 'u' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const now = Date.now();
-  await env.DB.prepare(`INSERT INTO listings (id, owner, type, title, condition, sem, year1, handoff, open_to_sell, buy_price, photos, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)`)
+  await env.DB.prepare(`INSERT INTO listings (id, owner, type, title, condition, sem, year1, handoff, open_to_sell, buy_price, photos, housing, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)`)
     .bind(id, session.sub, fields.type, fields.title, fields.condition, fields.sem, fields.year1, fields.handoff, fields.open_to_sell, fields.buy_price ?? null,
-      JSON.stringify(keys), now, now).run();
+      JSON.stringify(keys), housing, now, now).run();
   // "AI Generate AR model" on the List form: the listing is published right away and the model
   // follows in the background. A failure to start doesn't undo the listing.
   if (input.generateAr && keys.length) {
@@ -620,7 +626,7 @@ async function updateListing(request, env, ctx, session, id, photoBase) {
     fields.status = input.status;
   }
   const current = JSON.parse(row.photos || '[]');
-  let removed = [], photosChanged = false;
+  let removed = [], photosChanged = false, housingChecked = false;
   if (input.photos !== undefined) {
     if (!Array.isArray(input.photos) || input.photos.length > MAX_LISTING_PHOTOS) throw new HttpError(400, `Add up to ${MAX_LISTING_PHOTOS} photos.`);
     // Check everything before storing anything.
@@ -629,14 +635,29 @@ async function updateListing(request, env, ctx, session, id, photoBase) {
         if (!current.includes(p.key)) throw new HttpError(400, 'One of those photos is no longer on this listing. Reload and try again.');
         return { key: p.key };
       }
-      if (p && p.data !== undefined) return { bytes: jpegBytes(p.data) };
+      if (p && p.data !== undefined) return { bytes: jpegBytes(p.data), data: String(p.data) };
       throw new HttpError(400, 'Each photo must be a JPEG under 1 MB.');
     });
+    // Check the new set of photos against USC Housing rules before storing anything.
+    const asSent = [];
+    for (const p of plan) {
+      if (p.data) { asSent.push(p.data); continue; }
+      const buf = await env.PHOTOS.get(p.key, 'arrayBuffer');
+      if (buf) asSent.push(bytesToB64(new Uint8Array(buf)));
+    }
+    fields.housing = await enforceHousing(env, session, asSent, fields.title ?? row.title, input.checkToken, input.housingConfirmed);
+    housingChecked = true;
     const keys = [];
     for (const p of plan) keys.push(p.key || await storePhoto(env, session, p.bytes));
     removed = current.filter((k) => !keys.includes(k));
     photosChanged = JSON.stringify(keys) !== JSON.stringify(current);
     if (photosChanged) fields.photos = JSON.stringify(keys);
+  }
+  // A new title on the same photos is checked too (it can change what the item is).
+  if (!housingChecked && fields.title !== undefined && fields.title !== row.title) {
+    const asSent = [];
+    for (const k of current) { const buf = await env.PHOTOS.get(k, 'arrayBuffer'); if (buf) asSent.push(bytesToB64(new Uint8Array(buf))); }
+    fields.housing = await enforceHousing(env, session, asSent, fields.title, input.checkToken, input.housingConfirmed);
   }
   const cols = Object.keys(fields);
   if (cols.length) {

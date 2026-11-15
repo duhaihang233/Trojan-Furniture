@@ -101,7 +101,7 @@ export async function draftListing(request, env, session) {
     const { success } = await env.LIMITER.limit({ key: 'easy:' + session.sub });
     if (!success) throw new HttpError(429, "You've filled in a lot of listings in a row. Wait a minute and try again.");
   }
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch((env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com') + '/v1/messages', { // base URL is only overridden in local tests
     method: 'POST',
     signal: AbortSignal.timeout(60_000),
     headers: {

@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS listings (
   buy_price    INTEGER,                 -- $ to buy it outright ("Buy now"), set when open_to_sell is 1.
                                         -- Added later; on an older database: ALTER TABLE listings ADD COLUMN buy_price INTEGER;
   photos       TEXT NOT NULL DEFAULT '[]', -- JSON array of photo keys in the PHOTOS KV namespace
+  housing      TEXT NOT NULL DEFAULT '',   -- USC Housing restrictions that apply (housing.js), e.g. 'cooking_appliance'
+                                           -- Added later; on an older database: ALTER TABLE listings ADD COLUMN housing TEXT NOT NULL DEFAULT '';
   status       TEXT NOT NULL DEFAULT 'available', -- 'available' | 'paused'
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL

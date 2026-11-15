@@ -22,6 +22,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 
 - **Limits per student:** 100 listings with up to 4 photos each (about 1 MB per photo); 5 new listings, 30 chat messages and 5 room analyses per minute.
 - **Easy list:** Claude (`claude-opus-5-5`, low effort, JSON schema) fills in a listing from its photos, using the room planner's key. 5 per minute per student. Roughly 1–3 cents each; the response includes token `usage` to check.
+- **USC Housing rules check:** [housing.js](housing.js) holds USC Housing's prohibited possessions (2026-27 Living Agreement, section O, and the Fall 2026 Arriving Guide) as rules. Claude (`claude-opus-5-5`, medium effort, JSON schema) only says which rules the item might fall under and how sure it is; the code decides. Publishing (`POST /listings`) and edits that change the photos or title are always checked on the server: blocked items get a 422, unsure ones need `housingConfirmed`, restricted ones are stored in `listings.housing` and shown to renters. A check the seller ran from the form comes with a signed token (tied to the student and the exact photos and title, 30 minutes), so publishing doesn't pay for it twice. If the check can't run, publishing waits (503) rather than skipping it. Update `RULES` when USC Housing publishes a new Living Agreement.
 - **AI room planner:** the Worker builds the whole Claude request itself (model `claude-opus-5-5`, prompt, JSON schema), so the key can't be used for anything else. It costs about $0.04 per analysis.
 
 ## Endpoints
@@ -34,6 +35,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | `GET /listings` | Everyone's available listings, plus all of yours |
 | `POST /listings` | Publishes a listing (photos sent as base64 JPEG) |
 | `POST /listings/draft` | Easy list: 1–4 photos (base64 JPEG) in; a suggested `title`, `category`, `condition` and `conditionNote` out ([easy.js](easy.js)) |
+| `POST /listings/check` | USC Housing rules check for photos + title: `verdict` (`ok`, `restricted`, `confirm`, `blocked`), the findings, and a token to publish with ([housing.js](housing.js)) |
 | `PATCH /listings/:id` | Edits your listing: any field, or `photos` as the new list in order (`{ key }` keeps a photo, `{ data }` adds a base64 JPEG). Changing photos rebuilds an AI AR model. Also hides/shows it (`status: "paused"` / `"available"`). `openToSell: true` needs a `buyPrice` (the Buy now price) |
 | `DELETE /listings/:id` | Deletes your listing and its photos |
 | `PUT` / `DELETE /favorites/:id` | Saves or unsaves a listing |
