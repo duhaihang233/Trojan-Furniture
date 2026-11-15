@@ -886,3 +886,31 @@ html, body, #app { background: var(--bg); }
 .housing-rule .check { margin-top: 4px; font-weight: 600; }
 .housing-src { font-weight: 700; }
 .housing-note { background: #FFFAEB; }
+
+/* ---------- Home: search first, map as an expandable card ---------- */
+.hero.hero-compact { padding: 16px 20px 18px; gap: 4px; }
+.hero .hero-q { margin: 0; font-family: var(--serif); font-size: 28px; line-height: 1.15; font-weight: 700; color: #fff; }
+/* Search + categories stay pinned under the top bar while you scroll. */
+.home-find { position: sticky; top: calc(var(--safe-top) + 63px); z-index: 15; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 10px; background: var(--bg); box-shadow: 0 6px 12px -10px rgba(40, 20, 0, .25); }
+.search.search-main { height: 52px; border-radius: 14px; border: 1.5px solid var(--card-line); padding: 0 16px; gap: 10px; }
+.search.search-main svg { width: 20px; height: 20px; color: var(--cardinal); }
+.search.search-main .search-ph { font-size: 16px; }
+.home-find .chips { padding-bottom: 2px; }
+.map-section { padding-top: 10px; }
+.map-card { background: #fff; border: 1px solid var(--card-line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.map-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; font-size: 14px; font-weight: 600; min-height: 52px; }
+.map-head .ico { flex: none; display: flex; color: var(--cardinal); }
+.map-head .txt { flex: 1; }
+.map-frame { position: relative; max-height: 230px; overflow: hidden; transition: max-height .4s cubic-bezier(.2, .8, .2, 1); }
+.map-card.open .map-frame { max-height: 1400px; }
+/* Collapsed: slide the map so the focused hall sits in the middle of the window, without showing past its edges. */
+.map-card:not(.open) .map { transform: translateY(max(calc(230px - 100%), min(0px, calc(115px - var(--focus) * 1%)))); }
+.map-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 56px; background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, .92)); pointer-events: none; }
+.map-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 46px; border: none; border-top: 1px solid var(--card-line); background: #fff; color: var(--cardinal); font-weight: 700; font-size: 14px; }
+.map-toggle::after { content: '›'; font-size: 20px; line-height: 1; transform: rotate(90deg); transition: transform .2s ease; }
+.map-card.open .map-toggle::after { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) { .map-frame { transition: none; } }
+/* Count-only pins sit under labeled ones, so a dot never covers a hall's name. */
+.pin { z-index: 1; }
+.pin.dot { z-index: 0; }
+.pin.home, .pin.on { z-index: 2; }

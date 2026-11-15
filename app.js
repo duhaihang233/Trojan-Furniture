@@ -280,23 +280,38 @@
     // No error banner: listings are retried quietly in the background. Until they arrive, say so.
     const status = server.loaded ? '' : '<span class="meta">Loading listings…</span>';
 
+    // The map peeks at your hall (or the one you picked) until you open it.
+    const focus = (cur && cur.top != null ? cur : D.halls.find((h) => h.home && h.top != null)) || { top: 50 };
+    const pins = mapPins(count).map(({ h, dot }) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''} ${h.top < 9 ? 'below' : ''} ${dot ? 'dot' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${dot ? '' : esc(h.label)}</button>`).join('');
+
+    // Search first: it sits right under a short header and stays pinned while you scroll.
+    // The map stays, as a card that peeks at your hall and opens to the full map.
     return `${topbar()}
-    <section class="hero">
+    <section class="hero hero-compact">
       <p class="eyebrow">Student-to-student rentals</p>
-      <h2 class="hero-title">TroShare</h2>
-      <p class="hero-sub">Rent dorm essentials from Trojans near your hall, by the semester or the year.</p>
+      <h2 class="hero-q">Find it near your hall</h2>
     </section>
-    <div class="map">
-      <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
-      ${mapPins(count).map(({ h, dot }) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''} ${h.top < 9 ? 'below' : ''} ${dot ? 'dot' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${dot ? '' : esc(h.label)}</button>`).join('')}
+    <div class="home-find">
+      <a class="search search-main" href="#/search" data-action="search" aria-label="Search listings">${I.search}<span class="search-ph">Search lamps, fans, bean bags…</span></a>
+      <div class="chips" role="group" aria-label="Category">${D.categories.map((c) => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-action="cat" data-id="${c.id}" aria-pressed="${S.cat === c.id}">${c.label}</button>`).join('')}</div>
     </div>
-    <div class="map-pill"><span class="ico">${I.pin.replace('<svg', '<svg width="18" height="18"')}</span><span class="txt">${esc(pill)}</span>${cur ? '<button type="button" class="chip-btn" data-action="hall" data-id="">All halls</button>' : ''}</div>
+    <section class="section map-section">
+      <div class="map-card ${ui.mapOpen ? 'open' : ''}" style="--focus:${focus.top}">
+        <div class="map-head"><span class="ico">${I.pin.replace('<svg', '<svg width="18" height="18"')}</span><span class="txt">${esc(pill)}</span>${cur ? '<button type="button" class="chip-btn" data-action="hall" data-id="">All halls</button>' : ''}</div>
+        <div class="map-frame">
+          <div class="map">
+            <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
+            ${pins}
+          </div>
+          ${ui.mapOpen ? '' : '<div class="map-fade" aria-hidden="true"></div>'}
+        </div>
+        <button type="button" class="map-toggle" data-action="map-toggle" aria-expanded="${!!ui.mapOpen}">${ui.mapOpen ? 'Show less of the map' : 'Show full map'}</button>
+      </div>
+    </section>
     <section class="section" id="listings">
       <div class="section-head"><h2>${esc(title)}</h2><span class="sub">${items.length} item${items.length === 1 ? '' : 's'}</span></div>
       ${status}
-      <a class="search" href="#/search" data-action="search" aria-label="Search listings">${I.search}<span class="search-ph">Lamps, fans, bean bags…</span></a>
-      <div class="chips" role="group" aria-label="Category">${D.categories.map((c) => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-action="cat" data-id="${c.id}" aria-pressed="${S.cat === c.id}">${c.label}</button>`).join('')}</div>
-      <div class="section-head"><span class="sub">${cur ? 'Only ' + esc(cur.name) + ' · tap “All halls” on the map above for everything' : 'From USC students across campus'}</span>
+      <div class="section-head"><span class="sub">${cur ? 'Only ' + esc(cur.name) + ' · tap “All halls” on the map for everything' : 'From USC students across campus'}</span>
         <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
       ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : '<p class="empty">Nothing here yet. Try another hall on the map.</p>'}
     </section>
@@ -1910,6 +1925,7 @@
         break;
       case 'hall': S.hall = id ? (S.hall === id ? null : id) : null; save(); rerender(); break;
       case 'cat': S.cat = id; save(); rerender(); break;
+      case 'map-toggle': ui.mapOpen = !ui.mapOpen; rerender(); break;
       case 'scroll-list': document.getElementById('listings').scrollIntoView({ behavior: 'smooth' }); break;
       case 'fav': {
         const on = !server.favorites.includes(id);
