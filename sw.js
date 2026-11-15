@@ -7,7 +7,7 @@ const ASSETS = [
   './vendor/model-viewer.min.js',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png',
   './images/map.jpg', './images/bean.jpg', './images/lamp.jpg', './images/floor.jpg',
-  './images/fan.jpg', './images/topper.jpg', './images/tv.jpg', './images/cart.jpg', './images/sample-room.jpg',
+  './images/fan.jpg', './images/topper.jpg', './images/tv.jpg', './images/cart.jpg', './images/micro.jpg', './images/sample-room.jpg',
   './models/lamp.glb', './models/lamp.usdz', './models/floor.glb', './models/floor.usdz',
   './models/fan.glb', './models/fan.usdz', './models/bean.glb', './models/bean.usdz',
   './models/tv.glb', './models/tv.usdz', './models/topper.glb', './models/topper.usdz',

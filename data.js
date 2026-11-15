@@ -10,6 +10,7 @@ window.TS_DATA = (() => {
   ];
 
   const types = {
+    micro: { name: 'Compact microwave', cat: 'kitchen', img: 'images/micro.jpg', blurb: '0.7 cu ft · Black · Easy-clean interior' },
     tv: { name: '32″ HD TV', cat: 'tech', img: 'images/tv.jpg', blurb: 'Streams the Housing cable app. Remote included.' },
     bean: { name: 'Bean bag chair', cat: 'seat', img: 'images/bean.jpg', blurb: 'Gray · Cover is washable' },
     lamp: { name: 'LED desk lamp', cat: 'light', img: 'images/lamp.jpg', blurb: 'Dimmable · Built-in tray for keys' },
@@ -20,7 +21,7 @@ window.TS_DATA = (() => {
   };
 
   const categories = [
-    { id: 'all', label: 'All' }, { id: 'light', label: 'Lighting' }, { id: 'cool', label: 'Cooling' },
+    { id: 'all', label: 'All' }, { id: 'kitchen', label: 'Kitchen' }, { id: 'light', label: 'Lighting' }, { id: 'cool', label: 'Cooling' },
     { id: 'seat', label: 'Seating' }, { id: 'sleep', label: 'Sleep' }, { id: 'tech', label: 'Tech' }, { id: 'storage', label: 'Storage' }
   ];
 
@@ -49,7 +50,11 @@ window.TS_DATA = (() => {
     ['parkside', 'cart', 'Priya S.', 'Sophomore', 4.9, 6, 'Like new', 10, 'both'], ['parkside', 'bean', 'Leah F.', 'Junior', 4.7, 3, 'Good', 26, 'both'],
     ['parkside', 'lamp', 'Theo G.', 'Sophomore', 4.8, 2, 'Like new', 13, 'pickup'], ['parkside', 'floor', 'Cole M.', 'Senior', 4.9, 5, 'Good', 14, 'both'],
     ['parkside', 'fan', 'Jade H.', 'Junior', 4.8, 4, 'Good', 15, 'both'], ['parkside', 'topper', 'Finn R.', 'Senior', 5.0, 8, 'New, sealed', 19, 'both'],
-    ['parkside', 'tv', 'Aria S.', 'Senior', 4.6, 7, 'Good', 38, 'both']
+    ['parkside', 'tv', 'Aria S.', 'Senior', 4.6, 7, 'Good', 38, 'both'],
+    // Microwaves are added last so existing listing ids (l1–l42) stay the same.
+    ['webb', 'micro', 'Sara J.', 'Junior', 4.8, 6, 'Like new', 18, 'both'], ['village', 'micro', 'Omar B.', 'Senior', 4.9, 9, 'Good', 17, 'both'],
+    ['newnorth', 'micro', 'Tina R.', 'Junior', 4.7, 4, 'Good', 18, 'drop'], ['pardee', 'micro', 'Kevin L.', 'Senior', 4.8, 5, 'Like new', 16, 'both'],
+    ['gateway', 'micro', 'Hana S.', 'Sophomore', 4.9, 3, 'Like new', 18, 'pickup'], ['parkside', 'micro', 'Diego M.', 'Senior', 4.6, 7, 'Good', 17, 'both']
   ];
 
   const pickupSpots = {
