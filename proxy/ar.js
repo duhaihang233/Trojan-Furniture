@@ -19,7 +19,8 @@ Coordinates:
 
 How to work:
 1. Identify the item and estimate its real dimensions. Real size matters most, because students use AR to check whether it fits. Combine what the photo shows (proportions, nearby objects for scale) with typical sizes for that kind of product. For example: a desk lamp is about 0.45 m tall, a mini fridge about 0.48 × 0.85 × 0.45 m, a tower fan about 1 m tall, a bean bag about 0.8 m across. Report the size in \`size_m\` as [width, height, depth].
-2. Break the item into its main recognizable parts (body, legs, handles, shade, base, cushions, screen, door, cord, and so on). Use 4 to 20 parts and about 15 to 50 shapes in total. Aim for medium detail: get the silhouette and proportions right, round off hard edges where the real item is rounded (for example, ellipsoids or cylinders along soft edges), and include details about 1 cm or larger that make the item recognizable (feet, handles, buttons, vents, seams, hinges). Leave out anything smaller, and don't model text or logos.
+2. Break the item into its main recognizable parts (body, legs, handles, shade, base, cushions, screen, door, cord, and so on). Use 6 to 30 parts and about 30 to 90 shapes in total. Aim for medium detail: get the silhouette and proportions right, round off hard edges where the real item is rounded (for example, ellipsoids or cylinders along soft edges, or a slightly smaller box inset on a larger one for a beveled look), and include details about 1 cm or larger that make the item recognizable (feet, handles, buttons, vents, seams, hinges, panel lines, piping). Leave out anything smaller, and don't model text or logos.
+   Before you write the shapes, look at the photo carefully: note how the parts connect, their relative sizes, and where each one sits. Then check your coordinates add up: parts that rest on each other should touch, and the overall size should match \`size_m\`.
 3. Build each part from shapes:
    - box: \`center\`, \`size\` [width, height, depth], and \`rotation_deg\` [x, y, z] (degrees, applied in X, then Y, then Z order; use [0, 0, 0] for an upright box).
    - cylinder: a straight rod or disc from \`start\` to \`end\` with \`radius\`. Any direction works.
@@ -48,7 +49,7 @@ Finishes:
 - screen: a powered-off display or monitor screen (flat panels facing +Z)
 - light: the glowing inside of a lamp shade or a light bulb
 
-If the photos don't show a physical item that could sit in a dorm room, set \`ok\` to false, explain why in \`problem\` in one short sentence addressed to the seller (for example, "This photo shows a map, not an item; add a photo of the item itself."), and return an empty \`parts\` list.`;
+Model the physical object the photos actually show, even if it doesn't match the listing's title or category; the student is renting what's in the photo. Only if the photos show no physical object at all (for example, a screenshot, a map, a document, or just a person or a room with nothing in focus), set \`ok\` to false, explain why in \`problem\` in one short sentence addressed to the seller (for example, "This photo shows a map, not an item; add a photo of the item itself."), and return an empty \`parts\` list.`;
 
 const vec3 = { type: 'array', items: { type: 'number' }, description: '[x, y, z] in meters' };
 const FINISHES = ['plastic', 'glossy_plastic', 'metal', 'chrome', 'brass', 'wood', 'fabric', 'knit', 'linen', 'leather', 'quilted', 'rubber', 'ceramic', 'glass', 'screen', 'light'];
@@ -106,16 +107,20 @@ export function arRequest(photos, listing) {
   });
   return {
     model: AR_MODEL,
-    max_tokens: 16000,
+    max_tokens: 32000,
     system: AR_SYSTEM_PROMPT,
     messages: [{ role: 'user', content }],
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: AR_SCHEMA } },
+    // Thinking lets Claude plan proportions and check its coordinates before writing them; with
+    // effort 'high' a model takes about 30-60 seconds.
+    thinking: { type: 'adaptive' },
+    output_config: { effort: AR_EFFORT, format: { type: 'json_schema', schema: AR_SCHEMA } },
     fallbacks: 'default',
   };
 }
+export const AR_EFFORT = 'high';
 
-const MAX_PARTS = 24;
-const MAX_SHAPES = 80;
+const MAX_PARTS = 32;
+const MAX_SHAPES = 120;
 const LIMIT = 3; // meters from the center; dorm items are smaller than this
 
 // Keeps whole sentences, up to about 160 characters.

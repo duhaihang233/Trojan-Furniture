@@ -36,6 +36,15 @@ binding = "DB"
 database_name = "troshare-db"
 database_id = "95d4037c-ff86-43ef-98c7-9cc53b552942"
 
+# Background AR model generation (class ArJobs in worker.js); one object per listing.
+[[durable_objects.bindings]]
+name = "AR_JOBS"
+class_name = "ArJobs"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ArJobs"]
+
 [vars]
 # Public OAuth client ID from Google Cloud Console; must match googleClientId in ../config.js.
 GOOGLE_CLIENT_ID = "53504650186-br07fmrs9d8apcmd502ttnd4lkjv6cua.apps.googleusercontent.com"

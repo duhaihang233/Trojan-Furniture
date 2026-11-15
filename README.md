@@ -25,7 +25,7 @@ Built for the USC **"Building for Trojans"** hackathon.
 - **List an item** — add up to 4 photos (take them with your iPhone camera), set your price and handoff
   options, and publish. Every signed-in student sees it right away. Hide, show or delete it from the listing.
 - **AI Generate AR model** — turn it on when listing and Claude builds a 3D model of your item from your
-  photos in the background (about 10 seconds), in the same style as the built-in AR models. The listing goes
+  photos in the background (about a minute), in the same style as the built-in AR models. The listing goes
   live right away; its card on Home shows **AR: In progress**, **AR: Success** or **AR: Failed** (with Retry).
 - **Rent flow** — choose semester or full year, delivery or pickup (only what the seller offers),
   and split the cost with your roommate.

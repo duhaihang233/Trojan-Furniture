@@ -8,6 +8,7 @@
 // - AI AR models: Claude describes a listing's item as simple 3D shapes from its photos (ar.js);
 //   the browser builds the model from that description (../armodel.js).
 
+import { DurableObject } from 'cloudflare:workers';
 import { arRequest, cleanArSpec } from './ar.js';
 
 const ALLOWED_ORIGINS = new Set([
@@ -601,10 +602,11 @@ async function sendMessage(request, env, session, id) {
 
 /* ---------------- AI-generated AR models (prompt and checks in ar.js) ---------------- */
 
-// Generation takes about 10 seconds and runs after the response is sent (ctx.waitUntil), which
-// Cloudflare allows for up to 30 seconds. Anything still "in progress" after this long has died.
-const AR_TIMEOUT_MS = 27_000;
-const AR_STALE_MS = 3 * 60_000;
+// Generation takes about 30-60 seconds (effort 'high', see ar.js). It runs in the ArJobs Durable
+// Object's alarm, which may run for minutes after the seller's request has returned. Anything still
+// "in progress" after AR_STALE_MS has died and shows as failed, so the seller can retry.
+const AR_TIMEOUT_MS = 150_000;
+const AR_STALE_MS = 5 * 60_000;
 const AR_CATEGORY = { micro: 'Kitchen', tv: 'Tech', bean: 'Seating', lamp: 'Lighting', floor: 'Lighting', fan: 'Cooling', topper: 'Sleep', cart: 'Storage' };
 
 function arOut(row) {
@@ -627,7 +629,27 @@ async function startArModel(env, ctx, session, listing) {
   await env.DB.prepare(`INSERT INTO ar_models (listing_id, status, error, spec, started_at, finished_at) VALUES (?, 'in_progress', '', NULL, ?, NULL)
     ON CONFLICT(listing_id) DO UPDATE SET status = 'in_progress', error = '', spec = NULL, started_at = excluded.started_at, finished_at = NULL`)
     .bind(listing.id, now).run();
-  ctx.waitUntil(buildArModel(env, listing, now));
+  const job = { listing: { id: listing.id, photos: listing.photos, title: listing.title, type: listing.type, condition: listing.condition }, startedAt: now };
+  if (env.AR_JOBS) await env.AR_JOBS.get(env.AR_JOBS.idFromName(listing.id)).start(job);
+  else ctx.waitUntil(buildArModel(env, job.listing, now)); // local fallback: limited to ~30 s
+}
+
+/**
+ * One Durable Object per listing runs its AR generation from an alarm, which isn't tied to the
+ * seller's request and can wait the minute or so Claude needs. Errors are recorded as "failed"
+ * inside buildArModel, so the alarm never throws (a throw would make Cloudflare retry it).
+ */
+export class ArJobs extends DurableObject {
+  async start(job) {
+    await this.ctx.storage.put('job', job);
+    await this.ctx.storage.setAlarm(Date.now());
+  }
+  async alarm() {
+    const job = await this.ctx.storage.get('job');
+    if (!job) return;
+    await this.ctx.storage.delete('job');
+    await buildArModel(this.env, job.listing, job.startedAt);
+  }
 }
 
 async function buildArModel(env, listing, startedAt) {

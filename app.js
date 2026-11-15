@@ -90,22 +90,27 @@
     return l;
   }
   // Loads everyone's listings plus your profile and favorites. If it fails, it quietly tries again later.
-  async function loadServer() {
-    if (!AUTH.signedIn() || server.loading) return;
+  // Listings, profile/favorites and chats load independently, so a problem with one of them never
+  // hides the others (before, one failed request meant no students' listings at all). Callers that
+  // arrive while a load is running wait for that same load.
+  let loadingServer = null;
+  function loadServer() {
+    if (!AUTH.signedIn()) return Promise.resolve();
+    if (loadingServer) return loadingServer;
     server.loading = true; server.error = null;
-    try {
-      const [l, me, c] = await Promise.all([AUTH.call('/listings'), AUTH.refresh(), AUTH.call('/conversations')]);
-      server.listings = l.listings.map(fromServer);
-      server.favorites = (me && me.favorites) || [];
-      server.convs = c.conversations;
-      server.loaded = true; server.at = Date.now();
-    } catch (err) {
-      server.error = err.message;
-      clearTimeout(server.retry);
-      server.retry = setTimeout(() => { if (server.error) loadServer().then(() => { if (server.loaded) rerender(); }); }, 20000);
-    } finally {
-      server.loading = false;
-    }
+    loadingServer = (async () => {
+      const [l, me, c] = await Promise.allSettled([AUTH.call('/listings'), AUTH.refresh(), AUTH.call('/conversations')]);
+      if (l.status === 'fulfilled') { server.listings = l.value.listings.map(fromServer); server.loaded = true; server.at = Date.now(); }
+      if (me.status === 'fulfilled' && me.value) server.favorites = me.value.favorites || [];
+      if (c.status === 'fulfilled') server.convs = c.value.conversations;
+      const failed = [l, me, c].find((x) => x.status === 'rejected');
+      if (failed) {
+        server.error = failed.reason.message;
+        clearTimeout(server.retry);
+        server.retry = setTimeout(() => { if (server.error) loadServer().then(() => { if (server.loaded) rerender(); }); }, 20000);
+      }
+    })().finally(() => { server.loading = false; loadingServer = null; });
+    return loadingServer;
   }
   // Back online, or back in the app after switching away: try again if the last load failed.
   const retryQuietly = () => { if (server.error && !server.loading) loadServer().then(() => { if (server.loaded) rerender(); }); };
@@ -208,9 +213,9 @@
     let items = all.filter((l) => (!cur || l.hall === cur.id) && (S.cat === 'all' || catOf(l) === S.cat));
     const firstType = (l) => (l.type === 'micro' ? 0 : 1); // the microwave leads the samples
     const order = ui.sort === 'price' ? (a, b) => firstType(a) - firstType(b) || a.sem - b.sem : (a, b) => firstType(a) - firstType(b) || hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem;
-    // Every real listing from other students comes first (your own are in My Account). Samples fill in
-    // one card per kind of item, only for kinds nobody has listed yet.
-    const real = items.filter((l) => !l.sample && l.owner !== 'me').sort(order);
+    // Every real listing comes first, your own included (marked "(you)"), so a seller sees what they
+    // just published. Samples fill in one card per kind of item, only for kinds nobody has listed yet.
+    const real = items.filter((l) => !l.sample).sort(order);
     const seenTypes = new Set(real.map((l) => l.type));
     items = real.concat(items.filter((l) => l.sample).sort(order).filter((l) => !seenTypes.has(l.type) && seenTypes.add(l.type)));
     const title = cur ? 'At ' + cur.name : 'Browse listings';
@@ -267,7 +272,7 @@
       <label class="s-field"><span class="sr-only">Search listings</span><input type="search" placeholder="What can we help you find?" value="${esc(ui.q)}" data-input="q" autocomplete="off" enterkeyhint="search">${I.search}</label>
       <button type="button" class="s-cancel" data-action="search-cancel">Cancel</button></div>`;
     if (q) {
-      const items = market().filter((l) => l.owner !== 'me' && (nameOf(l) + ' ' + typeOf(l).name + ' ' + D.categories.find((c) => c.id === catOf(l))?.label + ' ' + l.seller + ' ' + hallById(l.hall).name).toLowerCase().includes(q));
+      const items = market().filter((l) => (nameOf(l) + ' ' + typeOf(l).name + ' ' + D.categories.find((c) => c.id === catOf(l))?.label + ' ' + l.seller + ' ' + hallById(l.hall).name).toLowerCase().includes(q));
       items.sort(ui.sort === 'price' ? (a, b) => a.sem - b.sem : (a, b) => hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem);
       return head + `<section class="section" id="listings">
       <div class="section-head"><span class="sub">${items.length} listing${items.length === 1 ? '' : 's'} across campus</span>
@@ -302,7 +307,7 @@
   function arOwnerPanel(l) {
     const st = l.ar && l.ar.status;
     const has = l.photos && l.photos.length;
-    if (st === 'in_progress') return `<div class="callout">${I.sparkle}<span><b>AR: In progress.</b> Claude is building a 3D model from your photos. It usually takes under a minute; you can leave this page.</span></div>`;
+    if (st === 'in_progress') return `<div class="callout">${I.sparkle}<span><b>AR: In progress.</b> Claude is building a 3D model from your photos. It usually takes about a minute; you can leave this page.</span></div>`;
     if (st === 'success') return `<div class="callout">${I.check}<span><b>AR: Success.</b> Students can place your item in their room with AR Preview.</span></div>`;
     if (st === 'failed') return `<div class="callout">${I.shield}<span><b>AR: Failed.</b> ${esc(l.ar.error)}</span></div><button type="button" class="btn btn-outline btn-small ar-gen" data-action="ar-start" data-id="${esc(l.id)}">${I.sparkle}Try AI Generate AR model again</button>`;
     return has ? `<button type="button" class="btn btn-outline btn-small ar-gen" data-action="ar-start" data-id="${esc(l.id)}">${I.sparkle}AI Generate AR model</button>` : '';
@@ -412,7 +417,7 @@
       <div class="field">
         <button type="button" class="btn ${d.ar && d.photos.length ? 'btn-cardinal' : 'btn-outline'} ar-gen" data-action="ar-toggle" aria-pressed="${!!(d.ar && d.photos.length)}" ${d.photos.length ? '' : 'disabled'}>${I.sparkle}AI Generate AR model${d.ar && d.photos.length ? ' · On' : ''}</button>
         <span class="meta">${!d.photos.length ? 'Add a photo first. Claude builds the AR model from your photos.'
-          : d.ar ? "After you publish, Claude builds a 3D model from your photos in the background, usually in under a minute. You don't have to wait: the listing goes live right away and shows the model's progress."
+          : d.ar ? "After you publish, Claude builds a 3D model from your photos in the background, usually in about a minute. You don't have to wait: the listing goes live right away and shows the model's progress."
           : 'Let Claude turn your photos into a 3D model, so students can place your item in their room with AR.'}</span>
       </div>
       <div class="field"><span class="label">Category</span>
@@ -602,18 +607,24 @@
     if (route === 'chat' && /^c[0-9a-f]{16}$/.test(id || '') && server.msgs[id]) fetchMessages(id).then((n) => { if (n && parse().id === id) refreshChat(false); });
   }, 4000);
   setInterval(() => { if (!document.hidden) refreshConvs(); }, 20000);
-  const arStates = () => server.listings.map((l) => l.id + ':' + (l.ar ? l.ar.status : '')).join(',');
+  // Keeps listings fresh while the app is open: new listings from other students show up within
+  // ~20 s, and an AR model being built is checked every 5 s so its status updates on its own.
+  const listingStates = () => server.listings.map((l) => [l.id, l.status, l.sem, l.title, l.ar ? l.ar.status : ''].join(':')).join(',');
+  let lastListingPoll = 0;
   setInterval(() => {
-    if (document.hidden || !AUTH.signedIn() || !server.listings.some((l) => l.ar && l.ar.status === 'in_progress')) return;
-    const before = arStates();
+    if (document.hidden || !AUTH.signedIn() || AUTH.needsSetup() || !server.loaded) return;
+    const building = server.listings.some((l) => l.ar && l.ar.status === 'in_progress');
+    if (Date.now() - lastListingPoll < (building ? 5000 : 20000)) return;
+    lastListingPoll = Date.now();
+    const before = listingStates();
     AUTH.call('/listings').then((r) => {
       server.listings = r.listings.map(fromServer);
-      if (arStates() === before) return;
+      if (listingStates() === before) return;
       const { route } = parse();
       const typing = document.activeElement && document.activeElement.matches('input, textarea, select');
-      if (['home', 'item', 'account', 'ar'].includes(route) && !typing) rerender();
+      if (['home', 'search', 'item', 'account', 'ar', 'room'].includes(route) && !typing) rerender();
     }).catch(() => { /* try again next time */ });
-  }, 5000);
+  }, 2500);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     if (Date.now() - server.at > 60000) syncFromServer(); else refreshConvs();
