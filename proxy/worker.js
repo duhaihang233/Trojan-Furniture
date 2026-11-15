@@ -334,7 +334,8 @@ const sellerName = (row) => (row.given || row.name || 'Trojan') + (row.family ? 
 function listingOut(row, me, photoBase) {
   return {
     id: row.id, type: row.type, title: row.title, condition: row.condition, sem: row.sem, year1: row.year1,
-    handoff: row.handoff, openToSell: !!row.open_to_sell, status: row.status, createdAt: row.created_at,
+    handoff: row.handoff, openToSell: !!row.open_to_sell, buyPrice: row.open_to_sell && row.buy_price ? row.buy_price : null,
+    status: row.status, createdAt: row.created_at,
     photos: JSON.parse(row.photos || '[]').map((k) => photoBase + k),
     seller: { name: sellerName(row), year: row.u_year || '', hall: row.u_hall || 'webb', picture: row.u_picture || '' },
     mine: row.owner === me,
@@ -387,7 +388,17 @@ function cleanListingFields(input, partial) {
     if (!HANDOFFS.includes(input.handoff)) throw new HttpError(400, 'Choose at least one handoff option.');
     out.handoff = input.handoff;
   }
-  if (!partial || has('openToSell')) out.open_to_sell = input.openToSell ? 1 : 0;
+  // A listing open to selling has a sale price ("Buy now"). Turning selling off clears it.
+  if (!partial || has('openToSell')) {
+    out.open_to_sell = input.openToSell ? 1 : 0;
+    if (!input.openToSell) out.buy_price = null;
+  }
+  if (input.openToSell && (!partial || has('openToSell') || has('buyPrice'))) {
+    if (!(Number.isInteger(input.buyPrice) && input.buyPrice >= 1 && input.buyPrice <= 5000)) throw new HttpError(400, 'Set a sale price between $1 and $5,000.');
+    out.buy_price = input.buyPrice;
+  } else if (partial && has('buyPrice') && !has('openToSell')) {
+    throw new HttpError(400, 'Send openToSell with buyPrice.');
+  }
   return out;
 }
 
@@ -413,9 +424,9 @@ async function createListing(request, env, ctx, session, photoBase) {
 
   const id = 'u' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const now = Date.now();
-  await env.DB.prepare(`INSERT INTO listings (id, owner, type, title, condition, sem, year1, handoff, open_to_sell, photos, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)`)
-    .bind(id, session.sub, fields.type, fields.title, fields.condition, fields.sem, fields.year1, fields.handoff, fields.open_to_sell,
+  await env.DB.prepare(`INSERT INTO listings (id, owner, type, title, condition, sem, year1, handoff, open_to_sell, buy_price, photos, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)`)
+    .bind(id, session.sub, fields.type, fields.title, fields.condition, fields.sem, fields.year1, fields.handoff, fields.open_to_sell, fields.buy_price ?? null,
       JSON.stringify(keys), now, now).run();
   // "AI Generate AR model" on the List form: the listing is published right away and the model
   // follows in the background. A failure to start doesn't undo the listing.
@@ -601,7 +612,7 @@ async function readMessages(env, session, id, after, photoBase) {
 
 /**
  * Sends a message. Instead of (or with) text, the buyer can send an event the server words itself:
- * `rent` (with plan 'sem'|'yr' and handoff 'drop'|'pick') or `confirm` (handoff done).
+ * `rent` (with plan 'sem'|'yr' and handoff 'drop'|'pick'), `buy` (with handoff) or `confirm` (handoff done).
  */
 async function sendMessage(request, env, session, id) {
   const input = await readJson(request, 10_000);
@@ -613,6 +624,11 @@ async function sendMessage(request, env, session, id) {
     if (input.event === 'rent') {
       if (!PLAN_LABEL[input.plan] || !HANDOFF_LABEL[input.handoff]) throw new HttpError(400, 'Choose a rental length and handoff.');
       out.push(['sys', `Rental request · ${PLAN_LABEL[input.plan]} · ${HANDOFF_LABEL[input.handoff]}`]);
+    } else if (input.event === 'buy') {
+      if (!HANDOFF_LABEL[input.handoff]) throw new HttpError(400, 'Choose a handoff.');
+      const l = await env.DB.prepare('SELECT open_to_sell, buy_price FROM listings WHERE id = ?').bind(row.listing_id).first();
+      if (!l || !l.open_to_sell || !l.buy_price) throw new HttpError(400, "This item isn't for sale.");
+      out.push(['sys', `Purchase request · $${l.buy_price} · ${HANDOFF_LABEL[input.handoff]}`]);
     } else if (input.event === 'confirm') {
       out.push(['sys', 'Handoff confirmed by the renter']);
     } else throw new HttpError(400, 'Unknown event.');

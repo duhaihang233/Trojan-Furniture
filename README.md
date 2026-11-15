@@ -22,26 +22,30 @@ Built for the USC **"Building for Trojans"** hackathon.
 - **Listings** — photos, semester and full-year prices, handoff options, and the seller's name,
   class year, hall and verified USC badge. Tap the heart to save one to your favorites.
 - **List an item** — add up to 4 photos (take them with your iPhone camera), set your price and handoff
-  options, and publish. Every signed-in student sees it right away. Edit it (photos, title, category, price,
+  options (and a sale price if you're also open to selling), and publish. Every signed-in student sees it right away. Edit it (photos, title, category, price,
   condition, handoff) from My Account or the listing page, or hide, show or delete it.
 - **AI Generate AR model** — turn it on when listing and Claude builds a 3D model of your item from your
   photos in the background (about a minute), in the same style as the built-in AR models. The listing goes
   live right away; its card on Home shows **AR: In progress**, **AR: Success** or **AR: Failed** (with Retry).
-- **Rent flow** — choose semester or full year, delivery or pickup (only what the seller offers),
-  and split the cost with your roommate.
-- **Checkout** — renting a real student's item sends them your rental request in a chat.
-  (Payment and the rental record are simulated on your device for now.)
+- **Rent or buy** — choose semester or full year, delivery or pickup (only what the seller offers),
+  and split the cost with your roommate. If the seller is also open to selling, you can **Buy** it at
+  their sale price instead. Then tap **Add to cart**, or **Rent now** / **Buy now** to check out just that item.
+- **Cart** — the cart button in the top right of every screen shows what you've added, with the total.
+  Check out everything at once from there.
+- **Checkout** — renting or buying a real student's item sends them your request in a chat.
+  (Payment and the order record are simulated on your device for now.)
 - **Chat** — message any seller from their listing. Chats with real students are real: they arrive in
   the other student's Inbox with an unread badge and update live while the chat is open. Tap **“Got it — confirm handoff”** when you get the item.
 - **Room Preview tab** — two tabs at the top:
-  - **AR Preview** — pick an item and place it in your room at real size with the phone camera
-    (AR Quick Look on iPhone, Scene Viewer on Android, a 3D model on a computer).
+  - **AR Preview** — shows the items in your cart: pick one and place it in your room at real size with the phone camera
+    (AR Quick Look on iPhone, Scene Viewer on Android, a 3D model on a computer). With an empty cart it asks you to
+    add items to your cart, or to preview from a listing page.
   - **Recommendations** — add photos of your room (or try a sample dorm room) and Claude suggests
     what to rent, matched to the nearest TroShare listing, plus free fixes. No sign-up or API key needed.
     From a suggestion, **See it in my room** places the item on your room photo: drag to move, pinch or
     use the slider to resize, twist to rotate.
 - **AR Preview on listings** — the button on each listing's photo opens the same AR preview.
-- **My Account** — your profile, rentals, your listings, recently viewed and favorites.
+- **My Account** — your profile, orders (rentals and purchases), your listings, recently viewed and favorites.
 - **Works like a native app on iPhone** — installable to the Home Screen, full-screen, offline-capable.
 
 ## Use it on iPhone

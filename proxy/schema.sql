@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS listings (
   year1        INTEGER NOT NULL,        -- $ for a full year
   handoff      TEXT NOT NULL,           -- 'both' | 'drop' | 'pickup'
   open_to_sell INTEGER NOT NULL DEFAULT 0,
+  buy_price    INTEGER,                 -- $ to buy it outright ("Buy now"), set when open_to_sell is 1.
+                                        -- Added later; on an older database: ALTER TABLE listings ADD COLUMN buy_price INTEGER;
   photos       TEXT NOT NULL DEFAULT '[]', -- JSON array of photo keys in the PHOTOS KV namespace
   status       TEXT NOT NULL DEFAULT 'available', -- 'available' | 'paused'
   created_at   INTEGER NOT NULL,

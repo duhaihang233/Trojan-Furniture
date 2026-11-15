@@ -29,13 +29,13 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | `PUT /me/profile` | Saves your class year and hall |
 | `GET /listings` | Everyone's available listings, plus all of yours |
 | `POST /listings` | Publishes a listing (photos sent as base64 JPEG) |
-| `PATCH /listings/:id` | Edits your listing: any field, or `photos` as the new list in order (`{ key }` keeps a photo, `{ data }` adds a base64 JPEG). Changing photos rebuilds an AI AR model. Also hides/shows it (`status: "paused"` / `"available"`) |
+| `PATCH /listings/:id` | Edits your listing: any field, or `photos` as the new list in order (`{ key }` keeps a photo, `{ data }` adds a base64 JPEG). Changing photos rebuilds an AI AR model. Also hides/shows it (`status: "paused"` / `"available"`). `openToSell: true` needs a `buyPrice` (the Buy now price) |
 | `DELETE /listings/:id` | Deletes your listing and its photos |
 | `PUT` / `DELETE /favorites/:id` | Saves or unsaves a listing |
 | `GET /conversations` | Your chats, with the latest message and unread count |
 | `POST /conversations` | Opens (or reopens) the chat with a listing's owner |
 | `GET /conversations/:id/messages?after=N` | Messages newer than `N` (the app polls every 4 s); marks them read |
-| `POST /conversations/:id/messages` | Sends a message, or a renter event (`rent`, `confirm`) the server words itself |
+| `POST /conversations/:id/messages` | Sends a message, or a renter event (`rent`, `buy`, `confirm`) the server words itself |
 | `GET /listings/:id/ar-model` | AR model status and shape description |
 | `POST /listings/:id/ar-model` | Generates (or regenerates) the AR model for your listing |
 | `GET /photos/:key` | Listing photo (public, cached for a year) |

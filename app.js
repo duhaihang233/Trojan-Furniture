@@ -30,7 +30,7 @@
   }
 
   // UI-only state (not persisted)
-  const ui = { plan: 'sem', hand: null, split: false, itemId: null, photoIdx: 0, accTab: 'rent', roomTab: 'ar', arType: null, q: '', sort: 'near', splitCart: false, draft: null };
+  const ui = { plan: 'sem', hand: null, split: false, itemId: null, photoIdx: 0, accTab: 'rent', roomTab: 'ar', arPick: null, mode: 'rent', now: null, q: '', sort: 'near', splitCart: false, draft: null };
 
   // Data on the TroShare server: every student's listings, your favorites, and your chats with other
   // students (msgs holds the loaded messages of each chat, by chat id).
@@ -79,7 +79,7 @@
     return {
       id: x.id, type: x.type, title: x.title, condition: x.condition, sem: x.sem, year1: x.year1, handoff: x.handoff,
       photo: x.photos[0] || null, photos: x.photos, hall: x.seller.hall, seller: x.seller.name, year: x.seller.year,
-      rating: null, rentals: 0, owner: x.mine ? 'me' : 'other', status: x.status, openToSell: x.openToSell, createdAt: x.createdAt,
+      rating: null, rentals: 0, owner: x.mine ? 'me' : 'other', status: x.status, openToSell: x.openToSell, buyPrice: x.buyPrice || null, createdAt: x.createdAt,
       ar: x.ar // AI AR model: null, or { status: 'in_progress' | 'success' | 'failed', error }
     };
   }
@@ -127,6 +127,15 @@
     return server.listings.find((x) => x.id === id) || D.listings.find((x) => x.id === id) || null;
   }
   const myListings = () => server.listings.filter((l) => l.owner === 'me');
+  // Cart entries: { listingId, mode: 'rent' | 'buy', plan: 'sem' | 'yr', handoff: 'drop' | 'pick' }.
+  // Older entries have no mode and are rentals. Kept on this device (S.cart).
+  const forSale = (l) => !!(l && l.openToSell && l.buyPrice);
+  const modeOf = (c) => (c.mode === 'buy' ? 'buy' : 'rent');
+  const entryPrice = (c, l) => (modeOf(c) === 'buy' ? l.buyPrice : (c.plan === 'sem' ? l.sem : l.year1));
+  // Cart rows whose listing is still up (and still for sale, for a purchase).
+  const cartRows = (entries) => entries.map((c) => ({ c, l: findListing(c.listingId) }))
+    .filter(({ c, l }) => l && l.owner !== 'me' && (modeOf(c) === 'rent' || forSale(l)));
+  const inCart = (id) => S.cart.find((c) => c.listingId === id) || null;
   function activeRentalFor(listingId) {
     return S.rentals.find((r) => r.listingId === listingId && r.status !== 'Returned');
   }
@@ -146,6 +155,7 @@
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>',
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/></svg>',
+    cart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2.5l2.2 11h10.6l2.2-8H6.6"/><circle cx="9.5" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg>',
     chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg>',
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
@@ -164,9 +174,16 @@
   /* ---------- shared pieces ---------- */
   function topbar(title, backHref) {
     if (!title) {
-      return `<header class="topbar"><span class="spacer44"></span><a class="wordmark" href="#/home">TROSHARE</a><span class="spacer44"></span></header>`;
+      return `<header class="topbar"><span class="spacer44"></span><a class="wordmark" href="#/home">TROSHARE</a>${cartButton()}</header>`;
     }
-    return `<header class="topbar">${backHref ? `<a class="icon-btn" href="${backHref}" data-action="back" aria-label="Back">${I.back}</a>` : '<span class="spacer44"></span>'}<h1>${esc(title)}</h1><span class="spacer44"></span></header>`;
+    return `<header class="topbar">${backHref ? `<a class="icon-btn" href="${backHref}" data-action="back" aria-label="Back">${I.back}</a>` : '<span class="spacer44"></span>'}<h1>${esc(title)}</h1>${cartButton()}</header>`;
+  }
+  // Cart in the top right of every screen (not on the cart and checkout themselves).
+  function cartButton() {
+    const r = parse().route;
+    if (r === 'cart' || r === 'checkout' || AUTH.needsSetup()) return '<span class="spacer44"></span>';
+    const n = cartRows(S.cart).length;
+    return `<a class="icon-btn cart-btn" href="#/cart" aria-label="Cart${n ? ', ' + n + ' item' + (n > 1 ? 's' : '') : ''}">${I.cart}${n ? `<span class="cart-dot">${n}</span>` : ''}</a>`;
   }
 
   // AI AR model status shown on listing cards and the listing page.
@@ -185,7 +202,7 @@
       <div class="gold"></div>
       <div class="body">
         <span class="name">${esc(nameOf(l))}</span>
-        <span class="price">${money(l.sem)}<small> /semester</small></span>
+        <span class="price">${money(l.sem)}<small> /semester${forSale(l) ? ' · buy ' + money(l.buyPrice) : ''}</small></span>
         <span class="meta">${esc(l.seller)} · ${esc(l.year)}${l.owner === 'me' ? ' (you)' : ''}${l.sample ? ' · Sample' : ''}</span>
         <span class="where">${I.pin}${esc(h.name)} · ${esc(h.walk)}</span>
         <span class="cta">${l.owner === 'me' ? 'Your listing' : 'See details'}</span>
@@ -197,7 +214,7 @@
       ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'Room Preview'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
-    const active = { browse: 'home', search: 'home', item: 'home', checkout: 'home', edit: 'account', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
+    const active = { browse: 'home', search: 'home', item: 'home', cart: 'home', checkout: 'home', edit: 'account', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
     const n = unreadCount();
     const prev = tabbar.querySelector('a.on')?.getAttribute('href');
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
@@ -320,7 +337,7 @@
       return `${topbar('Listing', '#/home')}<p class="empty">${server.loaded && !server.loading ? 'This listing is gone.' : 'Loading…'}</p>`;
     }
     if (ui.itemId !== id) {
-      ui.itemId = id; ui.photoIdx = 0; ui.plan = 'sem'; ui.split = false;
+      ui.itemId = id; ui.photoIdx = 0; ui.plan = 'sem'; ui.split = false; ui.mode = 'rent';
       ui.hand = l.handoff === 'pickup' ? 'pick' : 'drop';
       S.viewed = [id].concat(S.viewed.filter((v) => v !== id)).slice(0, 8); save();
     }
@@ -329,8 +346,11 @@
     const renting = activeRentalFor(id);
     const fav = server.favorites.includes(id);
     const canDrop = l.handoff !== 'pickup', canPick = l.handoff !== 'drop';
-    const amt = ui.plan === 'sem' ? l.sem : l.year1;
-    const pay = ui.split ? amt / 2 : amt;
+    const buying = forSale(l) && ui.mode === 'buy';
+    const amt = buying ? l.buyPrice : (ui.plan === 'sem' ? l.sem : l.year1);
+    const pay = ui.split && !buying ? amt / 2 : amt;
+    const carted = inCart(id);
+    const sameAsCart = carted && modeOf(carted) === (buying ? 'buy' : 'rent') && carted.handoff === ui.hand && (buying || carted.plan === ui.plan);
     const photos = l.photos && l.photos.length ? l.photos : [imgOf(l)];
     const shown = photos[Math.min(ui.photoIdx, photos.length - 1)];
     return `${topbar(nameOf(l), '#/home')}
@@ -355,40 +375,76 @@
           : `<button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="pause" data-id="${esc(id)}">Hide for now</button>`}
         <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="delete-listing" data-id="${esc(id)}">Delete</button>
       </div>
-      ${arOwnerPanel(l)}` : `      <span class="label">Rental length</span>
+      ${arOwnerPanel(l)}` : `${forSale(l) ? `      <span class="label">Rent or buy</span>
+      <div class="opts" role="radiogroup" aria-label="Rent or buy">
+        <button type="button" role="radio" class="opt ${buying ? '' : 'on'}" aria-checked="${!buying}" data-action="mode" data-id="rent"><span><span class="t">Rent · <span style="color:var(--cardinal)">from ${money(l.sem)}</span></span><span class="n">Give it back at move-out</span></span></button>
+        <button type="button" role="radio" class="opt ${buying ? 'on' : ''}" aria-checked="${buying}" data-action="mode" data-id="buy"><span><span class="t">Buy · <span style="color:var(--cardinal)">${money(l.buyPrice)}</span></span><span class="n">It's yours to keep</span></span></button>
+      </div>` : ''}
+      ${buying ? '' : `<span class="label">Rental length</span>
       <div class="opts" role="radiogroup" aria-label="Rental length">
         <button type="button" role="radio" class="opt ${ui.plan === 'sem' ? 'on' : ''}" aria-checked="${ui.plan === 'sem'}" data-action="plan" data-id="sem"><span><span class="t">Semester · <span style="color:var(--cardinal)">${money(l.sem)}</span></span><span class="n">Move-in to move-out</span></span></button>
         <button type="button" role="radio" class="opt ${ui.plan === 'yr' ? 'on' : ''}" aria-checked="${ui.plan === 'yr'}" data-action="plan" data-id="yr"><span><span class="t">Full year · <span style="color:var(--cardinal)">${money(l.year1)}</span></span><span class="n">Fall + spring · save ${money(l.sem * 2 - l.year1)}</span></span></button>
-      </div>
+      </div>`}
       <span class="label">Handoff</span>
       <div class="opts" role="radiogroup" aria-label="Handoff">
         <button type="button" role="radio" class="opt ${ui.hand === 'drop' ? 'on' : ''}" aria-checked="${ui.hand === 'drop'}" data-action="hand" data-id="drop" ${canDrop ? '' : 'disabled'}>${I.truck}<span><span class="t">Delivered</span><span class="n">${canDrop ? 'To your hall lobby' : 'Not offered'}</span></span></button>
         <button type="button" role="radio" class="opt ${ui.hand === 'pick' ? 'on' : ''}" aria-checked="${ui.hand === 'pick'}" data-action="hand" data-id="pick" ${canPick ? '' : 'disabled'}>${I.pin}<span><span class="t">Pickup</span><span class="n">${canPick ? esc(D.pickupSpots[l.hall]) : 'Not offered'}</span></span></button>
       </div>
-      <label class="switch-row"><span><span style="font-weight:600;display:block">Split with my roommate</span><span class="meta">They get an invite to pay half</span></span><input type="checkbox" data-action="split" ${ui.split ? 'checked' : ''}></label>`}
+      ${buying ? '' : `<label class="switch-row"><span><span style="font-weight:600;display:block">Split with my roommate</span><span class="meta">They get an invite to pay half</span></span><input type="checkbox" data-action="split" ${ui.split ? 'checked' : ''}></label>`}`}
     </section>
     ${mine ? '' : `<div class="paybar">
-      <div class="row"><div style="display:flex;flex-direction:column"><span class="big-price">${money(pay)}</span><span class="meta">${ui.split ? 'your half, ' : ''}${ui.plan === 'sem' ? 'per semester' : 'per year'}</span></div>
-      ${renting ? `<a class="btn btn-outline" href="#/chat/${renting.thread}" style="flex:1">You're renting this</a>` : `<button type="button" class="btn btn-cardinal" style="flex:1" data-action="rent" data-id="${esc(id)}">Rent</button>`}</div>
+      <div class="row"><div style="display:flex;flex-direction:column"><span class="big-price">${money(pay)}</span><span class="meta">${buying ? 'to buy' : (ui.split ? 'your half, ' : '') + (ui.plan === 'sem' ? 'per semester' : 'per year')}</span></div>
+      ${renting ? `<a class="btn btn-outline" href="#/chat/${renting.thread}" style="flex:1">${renting.kind === 'buy' ? 'You bought this' : "You're renting this"}</a>`
+        : `<div class="buy-btns">${sameAsCart ? `<a class="btn btn-outline" href="#/cart">${I.check}In cart</a>` : `<button type="button" class="btn btn-outline" data-action="add-cart" data-id="${esc(id)}">${carted ? 'Update cart' : 'Add to cart'}</button>`}<button type="button" class="btn btn-cardinal" data-action="buy-now" data-id="${esc(id)}">${buying ? 'Buy now' : 'Rent now'}</button></div>`}</div>
       <span class="note">Pick a time with ${esc(l.seller.split(' ')[0])} in chat. Payment is held until you get it.</span>
     </div>`}`;
   }
 
-  function checkoutScreen() {
-    const rows = S.cart.map((c) => ({ c, l: findListing(c.listingId) })).filter((x) => x.l);
+  const entryLabel = (c) => (modeOf(c) === 'buy' ? 'Buy · yours to keep' : (c.plan === 'sem' ? 'Rent · 1 Semester' : 'Rent · Full year'));
+  const handoffLabel = (c, l) => `<b>${c.handoff === 'drop' ? 'Delivered' : 'Pickup'}</b> · ${c.handoff === 'drop' ? esc(myLobby()) : esc(D.pickupSpots[l.hall])}`;
+
+  function cartScreen() {
+    const rows = cartRows(S.cart);
     if (!rows.length) {
-      return `${topbar('Checkout', '#/home')}<div class="empty"><p>Nothing to check out yet.</p><a class="btn btn-cardinal" href="#/browse" style="max-width:280px;margin:0 auto">Browse listings</a></div>`;
+      return `${topbar('Cart', '#/home')}<div class="empty cart-empty">${I.cart}<p><b>Your cart is empty.</b><br>Tap <b>Add to cart</b> on a listing to save it here. Items in your cart show up in AR Preview, so you can see them in your room before you check out.</p><a class="btn btn-cardinal" href="#/home" style="max-width:280px;margin:0 auto">Browse listings</a></div>`;
     }
-    const total = rows.reduce((n, { c, l }) => n + (c.plan === 'sem' ? l.sem : l.year1), 0);
+    const total = rows.reduce((n, { c, l }) => n + entryPrice(c, l), 0);
+    const withAr = rows.filter(({ l }) => AR_MODELS[l.type] || hasGenAr(l)).length;
+    return `${topbar('Cart', '#/home')}
+    <section class="section">
+      <div class="section-head"><h2>${rows.length} item${rows.length > 1 ? 's' : ''}</h2>${withAr ? `<a class="sub" href="#/room" data-action="room-tab" data-id="ar" style="color:var(--cardinal);font-weight:700">See them in AR</a>` : ''}</div>
+      ${rows.map(({ c, l }) => `<div class="card pad cart-row">
+        <a class="row" href="#/item/${encodeURIComponent(l.id)}" style="text-decoration:none;color:inherit"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">From ${esc(l.seller)} · ${esc(hallById(l.hall).walk)}</span><span class="meta">${entryLabel(c)}</span></span><span style="font-weight:700">${money(entryPrice(c, l))}</span></a>
+        <div class="row" style="justify-content:space-between"><span class="meta">${handoffLabel(c, l)}</span><button type="button" class="link" data-action="remove" data-id="${esc(l.id)}" style="font-size:13px">Remove</button></div>
+      </div>`).join('')}
+    </section>
+    <div class="paybar">
+      <div class="row" style="justify-content:space-between"><span style="font-weight:600">Total</span><span class="big-price">${money(total)}</span></div>
+      <button type="button" class="btn btn-cardinal" data-action="checkout-cart">Check out</button>
+    </div>`;
+  }
+
+  // What checkout is for: one item from "Rent now" / "Buy now" (ui.now), or everything in the cart.
+  const checkoutRows = () => cartRows(ui.now ? [ui.now] : S.cart);
+
+  function checkoutScreen() {
+    const rows = checkoutRows();
+    const back = ui.now ? '#/item/' + encodeURIComponent(ui.now.listingId) : '#/cart';
+    if (!rows.length) {
+      return `${topbar('Checkout', back)}<div class="empty"><p>Nothing to check out yet.</p><a class="btn btn-cardinal" href="#/home" style="max-width:280px;margin:0 auto">Browse listings</a></div>`;
+    }
+    const total = rows.reduce((n, { c, l }) => n + entryPrice(c, l), 0);
     const pay = ui.splitCart ? total / 2 : total;
-    return `${topbar('Checkout', '#/home')}
+    const buys = rows.filter(({ c }) => modeOf(c) === 'buy').length;
+    const verb = buys === rows.length ? 'Buy' : (buys ? 'Check out' : 'Rent');
+    return `${topbar('Checkout', back)}
     <section class="section">
       ${rows.map(({ c, l }) => {
-        const amt = c.plan === 'sem' ? l.sem : l.year1;
+        const amt = entryPrice(c, l);
         return `<div class="card pad" style="display:flex;flex-direction:column;gap:12px">
           <div class="row"><span class="${avClass(l.seller)} sm" style="width:32px;height:32px">${esc(initial(l.seller))}</span><span class="grow"><span class="row" style="gap:6px;font-weight:700">From ${esc(l.seller)} · ${esc(l.year)} ${I.verified}</span></span><span class="meta">${stars(l)}</span></div>
-          <div class="row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${c.plan === 'sem' ? '1 Semester' : 'Full year'}</span></span><span style="font-weight:700">${money(amt)}</span></div>
-          <div class="row" style="justify-content:space-between"><span class="meta"><b>${c.handoff === 'drop' ? 'Delivered' : 'Pickup'}</b> · ${c.handoff === 'drop' ? esc(myLobby()) : esc(D.pickupSpots[l.hall])}</span><button type="button" class="link" data-action="remove" data-id="${l.id}" style="font-size:13px">Remove</button></div>
+          <div class="row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${entryLabel(c)}</span></span><span style="font-weight:700">${money(amt)}</span></div>
+          <div class="row" style="justify-content:space-between"><span class="meta">${handoffLabel(c, l)}</span>${ui.now ? '' : `<button type="button" class="link" data-action="remove" data-id="${esc(l.id)}" style="font-size:13px">Remove</button>`}</div>
         </div>`;
       }).join('')}
       <div class="card pad" style="display:flex;flex-direction:column;gap:8px">
@@ -398,12 +454,12 @@
     </section>
     <div class="paybar">
       <div class="row" style="justify-content:space-between"><span style="font-weight:600">${ui.splitCart ? 'You pay (half)' : 'Total'}</span><span class="big-price">${money(pay)}</span></div>
-      <button type="button" class="btn btn-cardinal" data-action="place">Rent ${rows.length} item${rows.length > 1 ? 's' : ''}</button>
+      <button type="button" class="btn btn-cardinal" data-action="place">${verb} ${rows.length} item${rows.length > 1 ? 's' : ''}</button>
     </div>`;
   }
 
   function sellScreen() {
-    const d = ui.draft || (ui.draft = { photos: [], cat: 'seat', title: '', condition: 'Like new', sem: '', year1: '', drop: true, pick: true, sell: false });
+    const d = ui.draft || (ui.draft = { photos: [], cat: 'seat', title: '', condition: 'Like new', sem: '', year1: '', drop: true, pick: true, sell: false, buy: '' });
     return listingForm(d, null);
   }
 
@@ -415,7 +471,7 @@
     if (!ui.edit || ui.edit.id !== id) {
       ui.edit = {
         id, back: ui.editBack || '#/item/' + id, photos: (l.photos || []).slice(), cat: catOf(l), title: l.title || nameOf(l),
-        condition: l.condition, sem: String(l.sem), year1: String(l.year1), drop: l.handoff !== 'pickup', pick: l.handoff !== 'drop', sell: !!l.openToSell
+        condition: l.condition, sem: String(l.sem), year1: String(l.year1), drop: l.handoff !== 'pickup', pick: l.handoff !== 'drop', sell: !!l.openToSell, buy: l.buyPrice ? String(l.buyPrice) : ''
       };
     }
     return listingForm(ui.edit, l);
@@ -455,7 +511,8 @@
       <div class="field"><span class="label">How will you hand it off?</span>
         <label class="check"><input type="checkbox" data-input="drop" ${d.drop ? 'checked' : ''}>I'll drop it off at their hall</label>
         <label class="check"><input type="checkbox" data-input="pick" ${d.pick ? 'checked' : ''}>They pick up at my spot</label></div>
-      <label class="switch-row"><span><span style="font-weight:600;display:block">Also open to selling</span><span class="meta">Renters can make an offer to keep it</span></span><input type="checkbox" data-input="sell" ${d.sell ? 'checked' : ''}></label>
+      <label class="switch-row"><span><span style="font-weight:600;display:block">Also open to selling</span><span class="meta">Students can buy it from you with Buy now</span></span><input type="checkbox" data-input="sell" ${d.sell ? 'checked' : ''}></label>
+      ${d.sell ? `<div class="field"><label for="f-buy">Sale price ($)</label><input id="f-buy" class="input" type="number" inputmode="numeric" min="1" data-input="buy" value="${esc(d.buy || '')}" placeholder="${Math.max(1, Math.round((Number(d.year1) || Number(d.sem) * 1.8 || 40) * 1.5))}"><span class="meta">What a student pays to keep it.</span></div>` : ''}
       <button type="submit" class="btn btn-cardinal" ${d.busy ? 'disabled' : ''}>${editing ? (d.busy ? 'Saving…' : 'Save changes') : (d.busy ? 'Publishing…' : 'Publish listing')}</button>
       ${editing ? `<a class="btn btn-outline" href="${esc(d.back)}">Cancel</a>
       <span class="note">Changes show to other students right away.</span>` : '<span class="note">Only signed-in USC students can see your listing. You can hide or delete it any time from My Account.</span>'}
@@ -671,7 +728,7 @@
     const statusBadge = (s) => s === 'Returned' ? 'gray' : (s === 'Rented' ? 'red' : '');
     const renting = S.rentals.map((r) => {
       const l = findListing(r.listingId); if (!l) return '';
-      return `<a class="list-row" href="${r.thread ? '#/chat/' + r.thread : '#/item/' + l.id}"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">From ${esc(l.seller)} · ${r.plan === 'sem' ? '1 Semester' : 'Full year'} · ${money(r.price)}${r.split ? ' (split)' : ''}</span><span class="meta">${esc(r.when)}</span></span><span class="badge ${statusBadge(r.status)}">${esc(r.status)}</span></a>`;
+      return `<a class="list-row" href="${r.thread ? '#/chat/' + r.thread : '#/item/' + l.id}"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">From ${esc(l.seller)} · ${r.kind === 'buy' ? 'Bought' : (r.plan === 'sem' ? '1 Semester' : 'Full year')} · ${money(r.price)}${r.split ? ' (split)' : ''}</span><span class="meta">${esc(r.when)}</span></span><span class="badge ${statusBadge(r.status)}">${esc(r.status)}</span></a>`;
     }).join('');
     const mine = myListings();
     const mineRows = mine.map((m) => `<div class="list-row"><a class="row grow" href="#/item/${esc(m.id)}" style="flex-direction:row;align-items:center;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">${money(m.sem)} per semester · <span class="badge ${m.status === 'paused' ? 'gray' : ''}" style="font-size:11px">${m.status === 'paused' ? 'Hidden' : 'Available'}</span></span><span class="meta">${esc(m.condition)} · ${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span></a><button type="button" class="btn btn-outline btn-small" data-action="edit-listing" data-id="${esc(m.id)}" aria-label="Edit ${esc(nameOf(m))}">Edit</button></div>`).join('');
@@ -695,8 +752,8 @@
       </div>
       <div class="card pad" style="display:flex;flex-direction:column;gap:10px">
         <h2 class="h2" style="font-size:20px">My rentals</h2>
-        <div class="tabs2" role="tablist"><button type="button" role="tab" class="${ui.accTab === 'rent' ? 'on' : ''}" aria-selected="${ui.accTab === 'rent'}" data-action="acc-tab" data-id="rent">Renting (${S.rentals.length})</button><button type="button" role="tab" class="${ui.accTab === 'list' ? 'on' : ''}" aria-selected="${ui.accTab === 'list'}" data-action="acc-tab" data-id="list">My listings (${mine.length})</button></div>
-        <div>${ui.accTab === 'rent' ? (renting || '<p class="empty">No rentals yet.</p>') : (mineRows || `<p class="empty">${server.loaded ? 'You haven’t listed anything yet.' : 'Loading…'}</p>`)}</div>
+        <div class="tabs2" role="tablist"><button type="button" role="tab" class="${ui.accTab === 'rent' ? 'on' : ''}" aria-selected="${ui.accTab === 'rent'}" data-action="acc-tab" data-id="rent">Orders (${S.rentals.length})</button><button type="button" role="tab" class="${ui.accTab === 'list' ? 'on' : ''}" aria-selected="${ui.accTab === 'list'}" data-action="acc-tab" data-id="list">My listings (${mine.length})</button></div>
+        <div>${ui.accTab === 'rent' ? (renting || '<p class="empty">No rentals or purchases yet.</p>') : (mineRows || `<p class="empty">${server.loaded ? 'You haven’t listed anything yet.' : 'Loading…'}</p>`)}</div>
         ${ui.accTab === 'list' ? '<a class="btn-dashed" href="#/sell">+ List an item</a>' : ''}
       </div>
       ${viewed.length ? `<div class="card pad" style="display:flex;flex-direction:column;gap:10px"><h2 class="h2" style="font-size:20px">Recently viewed</h2><div class="hscroll">${viewed.map((l) => `<a class="mini" href="#/item/${l.id}"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span style="font-size:12px;font-weight:700">${esc(nameOf(l))}</span><span style="font-size:12px;font-weight:700;color:var(--cardinal)">${money(l.sem)}/sem</span></a>`).join('')}</div></div>` : ''}
@@ -808,32 +865,47 @@
 
   // AR Preview tab: pick an item from the photo rail, spin the 3D model, then place it in your room at real size.
   function arPreviewPanel() {
-    const picks = Object.keys(AR_MODELS).map((type) => ({ type, l: bestListing(type) })).filter((p) => p.l);
-    if (!picks.length) return '<p class="empty">No 3D previews yet.</p>';
-    const cur = picks.find((p) => p.type === ui.arType) || picks[0];
-    const l = cur.l;
-    const from = (type) => Math.min(...market().filter((x) => x.type === type && x.owner !== 'me').map((x) => x.sem));
+    const rows = cartRows(S.cart);
+    const has3d = ({ l }) => !!(AR_MODELS[l.type] || hasGenAr(l));
+    const picks = rows.filter(has3d);
+    if (!picks.length) {
+      return `<section class="section ar-panel"><div class="ar-empty">${I.cart}
+        <h2 class="serif">${rows.length ? 'No 3D models in your cart yet' : 'Your cart is empty'}</h2>
+        <p class="sub">${rows.length
+          ? 'The items in your cart don’t have a 3D model yet. Add an item that does, or open a listing and tap <b>AR Preview</b> on its photo.'
+          : 'AR Preview shows the items in your cart. Tap <b>Add to cart</b> on a listing to see it here, or open any listing and tap <b>AR Preview</b> on its photo.'}</p>
+        <a class="btn btn-cardinal" href="#/home">Browse listings</a>
+        ${rows.length ? '<a class="btn btn-outline" href="#/cart">Go to cart</a>' : ''}</div></section>`;
+    }
+    const cur = picks.find((p) => p.l.id === ui.arPick) || picks[0];
+    const { c, l } = cur;
+    const gen = hasGenAr(l);
     const phone = onIPhone() || onAndroid();
     const place = placementFor(l.type);
     const src = 'models/' + l.type;
+    const noModel = rows.filter((r) => !has3d(r));
+    const priceOf = (x) => (modeOf(x.c) === 'buy' ? `${money(x.l.buyPrice)} to buy` : `${money(entryPrice(x.c, x.l))}/${x.c.plan === 'sem' ? 'sem' : 'yr'}`);
     return `<section class="section ar-panel">
-      <div><h2 class="serif ar-h">Try it before you rent</h2>
-        <p class="sub" style="margin:6px 0 0">Pick an item and drop a real-size 3D model into your room with your phone’s camera.</p></div>
-      <div class="ar-rail" role="radiogroup" aria-label="Item to preview">${picks.map((p) => `<button type="button" role="radio" class="ar-tile ${p === cur ? 'on' : ''}" aria-checked="${p === cur}" data-action="ar-pick" data-id="${esc(p.type)}">
+      <div><h2 class="serif ar-h">Your cart in your room</h2>
+        <p class="sub" style="margin:6px 0 0">Pick an item from your cart and drop a real-size 3D model into your room with your phone’s camera.</p></div>
+      <div class="ar-rail" role="radiogroup" aria-label="Item to preview">${picks.map((p) => `<button type="button" role="radio" class="ar-tile ${p === cur ? 'on' : ''}" aria-checked="${p === cur}" data-action="ar-pick" data-id="${esc(p.l.id)}">
           <span class="ar-tile-ph"><img src="${esc(imgOf(p.l))}" alt=""></span>
-          <span class="ar-tile-name">${esc(typeOf(p.l).name)}</span>
-          <span class="ar-tile-price">from ${money(from(p.type))}/sem</span></button>`).join('')}</div>
+          <span class="ar-tile-name">${esc(nameOf(p.l))}</span>
+          <span class="ar-tile-price">${priceOf(p)}</span></button>`).join('')}</div>
+      ${noModel.length ? `<span class="meta">No 3D model yet: ${noModel.map((r) => esc(nameOf(r.l))).join(', ')}</span>` : ''}
       <div class="ar-card">
         <div class="ar-stage-wrap">
-          <model-viewer class="ar-stage" id="ar-model" src="${src}.glb" ios-src="${src}.usdz" poster="${esc(imgOf(l))}" alt="${esc(nameOf(l))} in 3D, ${esc(AR_MODELS[l.type])}" camera-controls auto-rotate auto-rotate-delay="800" rotation-per-second="18deg" touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>
+          ${gen
+            ? `<model-viewer class="ar-stage" id="ar-model" data-gen="${esc(l.id)}" poster="${esc(imgOf(l))}" alt="${esc(nameOf(l))} in 3D" camera-controls auto-rotate auto-rotate-delay="800" rotation-per-second="18deg" touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>`
+            : `<model-viewer class="ar-stage" id="ar-model" src="${src}.glb" ios-src="${src}.usdz" poster="${esc(imgOf(l))}" alt="${esc(nameOf(l))} in 3D, ${esc(AR_MODELS[l.type])}" camera-controls auto-rotate auto-rotate-delay="800" rotation-per-second="18deg" touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>`}
         </div>
         <div class="ar-card-body">
-          <div class="ar-title-row"><span class="grow"><span class="t-serif ar-name">${esc(typeOf(l).name)}</span><span class="meta">${esc(l.seller)} · ${esc(hallById(l.hall).walk)}</span></span><span class="ar-price">${money(l.sem)}<small>/sem</small></span></div>
-          <span class="ar-size">${I.viewfinder}Real size · ${esc(AR_MODELS[l.type])}</span>
-          ${place ? `<span class="where" style="align-items:flex-start">${I.pin}Suggested spot: ${esc(place.replace(/[. ]*$/, ''))}</span>` : ''}
+          <div class="ar-title-row"><span class="grow"><span class="t-serif ar-name">${esc(nameOf(l))}</span><span class="meta">${esc(l.seller)} · ${esc(hallById(l.hall).walk)} · ${modeOf(c) === 'buy' ? 'Buying' : 'Renting'}</span></span><span class="ar-price">${money(entryPrice(c, l))}<small>${modeOf(c) === 'buy' ? '' : (c.plan === 'sem' ? '/sem' : '/yr')}</small></span></div>
+          ${gen ? `<span class="ar-size" id="ar-size">${I.viewfinder}Building the 3D model…</span>` : `<span class="ar-size">${I.viewfinder}Real size · ${esc(AR_MODELS[l.type])}</span>`}
+          ${place && !gen ? `<span class="where" style="align-items:flex-start">${I.pin}Suggested spot: ${esc(place.replace(/[. ]*$/, ''))}</span>` : ''}
           <div class="ar-actions">
-            ${phone ? arButton(l, 'AR Preview', 'btn btn-cardinal') : `<button type="button" class="btn btn-cardinal" data-action="ar-desk">${I.viewfinder}AR Preview</button>`}
-            <a class="btn btn-outline" href="#/item/${encodeURIComponent(l.id)}">Rent</a>
+            ${phone || gen ? arButton(l, 'AR Preview', 'btn btn-cardinal') : `<button type="button" class="btn btn-cardinal" data-action="ar-desk">${I.viewfinder}AR Preview</button>`}
+            <a class="btn btn-outline" href="#/cart">Go to cart</a>
           </div>
           <p class="ar-hint">Point at the floor, tap the circle, then walk around it.</p>
         </div>
@@ -1175,6 +1247,7 @@
       case 'browse': ui.toList = true; html = homeScreen(); break;
       case 'search': html = searchScreen(); break;
       case 'item': html = itemScreen(id); break;
+      case 'cart': html = cartScreen(); break;
       case 'checkout': html = checkoutScreen(); break;
       case 'sell': html = sellScreen(); break;
       case 'edit': html = editScreen(id); break;
@@ -1189,7 +1262,7 @@
     app.innerHTML = html;
     renderTabbar(route);
     if (route === 'fit') setupFit();
-    if (route === 'ar') setupGenAr();
+    if (route === 'ar' || route === 'room') setupGenAr();
     if (location.hash !== lastHash) {
       lastHash = location.hash;
       if (route === 'chat') scrollThreadEnd();
@@ -1230,11 +1303,10 @@
     btn.disabled = true;
     const made = [];
     try {
-      for (const c of S.cart.slice()) {
-        const l = findListing(c.listingId);
-        if (!l) continue;
+      for (const { c, l } of checkoutRows()) {
+        const buy = modeOf(c) === 'buy';
         const rid = 'r' + Date.now() + made.length;
-        const price = c.plan === 'sem' ? l.sem : l.year1;
+        const price = entryPrice(c, l);
         const where = c.handoff === 'drop' ? myLobby() : D.pickupSpots[l.hall];
         let thread;
         if (l.sample) {
@@ -1246,15 +1318,15 @@
         } else {
           const conv = await openRealChat(l);
           const sellerFirst = l.seller.split(' ')[0];
-          await sendReal(conv.id, {
-            event: 'rent', plan: c.plan, handoff: c.handoff,
-            text: `Hi ${sellerFirst}! I'd like to rent your “${nameOf(l)}” for ${c.plan === 'sem' ? 'the semester' : 'the full year'}. ${c.handoff === 'drop' ? 'Could you drop it off at ' + where + '?' : "I'll pick it up at " + where + '.'} What time works for you?`
-          });
+          const how = c.handoff === 'drop' ? 'Could you drop it off at ' + where + '?' : "I'll pick it up at " + where + '.';
+          await sendReal(conv.id, buy
+            ? { event: 'buy', handoff: c.handoff, text: `Hi ${sellerFirst}! I'd like to buy your “${nameOf(l)}” for ${money(price)}. ${how} What time works for you?` }
+            : { event: 'rent', plan: c.plan, handoff: c.handoff, text: `Hi ${sellerFirst}! I'd like to rent your “${nameOf(l)}” for ${c.plan === 'sem' ? 'the semester' : 'the full year'}. ${how} What time works for you?` });
           thread = conv.id;
         }
-        S.rentals.unshift({ id: rid, listingId: l.id, plan: c.plan, price, handoff: c.handoff, split: ui.splitCart, status: 'Scheduled', when: 'Move-in day · time TBD', where, thread });
-        S.cart = S.cart.filter((x) => x !== c);
-        made.push(thread);
+        S.rentals.unshift({ id: rid, kind: buy ? 'buy' : 'rent', listingId: l.id, plan: c.plan, price, handoff: c.handoff, split: ui.splitCart, status: 'Scheduled', when: (buy ? 'Handoff' : 'Move-in day') + ' · time TBD', where, thread });
+        S.cart = S.cart.filter((x) => x.listingId !== l.id);
+        made.push({ thread, buy });
         save();
       }
     } catch (err) {
@@ -1262,8 +1334,11 @@
       toast(err.message);
       if (!made.length) return;
     }
-    toast(made.length > 1 ? `Rented ${made.length} items — sellers notified` : 'Rented! The seller has been notified');
-    location.hash = made.length === 1 ? '#/chat/' + made[0] : '#/inbox';
+    ui.now = null;
+    const bought = made.filter((m) => m.buy).length;
+    const did = bought === made.length ? 'Bought' : (bought ? 'Ordered' : 'Rented');
+    toast(made.length > 1 ? `${did} ${made.length} items — sellers notified` : `${did}! The seller has been notified`);
+    location.hash = made.length === 1 ? '#/chat/' + made[0].thread : '#/inbox';
   }
 
   function updateMine(id, patch, done) {
@@ -1315,13 +1390,17 @@
         openRealChat(l).then((c) => { location.hash = '#/chat/' + c.id; }).catch((err) => { el.disabled = false; toast(err.message); });
         break;
       }
-      case 'rent': {
+      case 'mode': ui.mode = id; rerender(); break;
+      case 'add-cart': case 'buy-now': {
         const l = findListing(id);
-        S.cart = S.cart.filter((c) => c.listingId !== id);
-        S.cart.push({ listingId: id, plan: ui.plan, handoff: ui.hand });
-        ui.splitCart = ui.split;
-        save(); location.hash = '#/checkout'; toast(nameOf(l) + ' added'); break;
+        if (!l) break;
+        const entry = { listingId: id, mode: forSale(l) && ui.mode === 'buy' ? 'buy' : 'rent', plan: ui.plan, handoff: ui.hand };
+        if (a === 'buy-now') { ui.now = entry; ui.splitCart = entry.mode === 'rent' && ui.split; location.hash = '#/checkout'; break; }
+        const had = inCart(id);
+        S.cart = S.cart.filter((c) => c.listingId !== id).concat(entry);
+        save(); rerender(); toast(had ? 'Cart updated' : 'Added to cart · preview it in AR from Room Preview'); break;
       }
+      case 'checkout-cart': ui.now = null; ui.splitCart = false; location.hash = '#/checkout'; break;
       case 'remove': S.cart = S.cart.filter((c) => c.listingId !== id); save(); rerender(); break;
       case 'place': placeOrder(el); break;
       case 'confirm': {
@@ -1353,7 +1432,7 @@
         break;
       case 'retry-load': loadServer().then(rerender); rerender(); break;
       case 'room-tab': ui.roomTab = id; rerender(); break;
-      case 'ar-pick': ui.arType = id; rerender(); break;
+      case 'ar-pick': ui.arPick = id; rerender(); break;
       case 'sell-cat': formDraft().cat = id; rerender(); break; // same categories as the Home chips
       case 'ar-desk': toast('Open TroShare on your iPhone to use the camera'); break;
       case 'residence': { const f = app.querySelector('[data-form=profile]'); if (f) f.scrollIntoView({ behavior: 'smooth' }); break; }
@@ -1384,11 +1463,11 @@
       case 'fit-flip': fit.flip = !fit.flip; applyFit(); break;
       case 'fit-rotate': fit.rot += 15; applyFit(); break;
       case 'fit-reset': { const l = findListing(id); if (l) { resetFit(l, id); applyFit(); } break; }
-      case 'fit-rent': {
+      case 'fit-rent': { // "Rent" from an AR or room preview: straight to checkout for this one item
         const l = findListing(id);
-        S.cart = S.cart.filter((c) => c.listingId !== id);
-        S.cart.push({ listingId: id, plan: 'sem', handoff: l.handoff === 'pickup' ? 'pick' : 'drop' });
-        save(); location.hash = '#/checkout'; toast(nameOf(l) + ' added'); break;
+        if (!l) break;
+        ui.now = { listingId: id, mode: 'rent', plan: 'sem', handoff: l.handoff === 'pickup' ? 'pick' : 'drop' };
+        ui.splitCart = false; location.hash = '#/checkout'; break;
       }
       case 'browse-type': ui.q = D.types[id].name; ui.searchFrom = location.hash; S.cat = 'all'; save(); location.hash = '#/search'; break;
       case 'cond': formDraft().condition = id; rerender(); break;
@@ -1425,7 +1504,8 @@
       if (f && d.photos.length < MAX_LISTING_PHOTOS) compress(f).then((url) => { d.photos.push(url); rerender(); }).catch(() => toast("Couldn't read that photo"));
       return;
     }
-    if (k === 'drop' || k === 'pick' || k === 'sell') { d[k] = el.checked; return; }
+    if (k === 'drop' || k === 'pick') { d[k] = el.checked; return; }
+    if (k === 'sell') { d.sell = el.checked; rerender(); if (d.sell) { const b = document.getElementById('f-buy'); if (b && !b.value) b.focus(); } return; }
   });
 
   app.addEventListener('input', (e) => {
@@ -1439,7 +1519,7 @@
     }
     if (k === 'fit-size') { fit.size = Number(el.value) / 100; applyFit(); return; }
     const fd = formDraft();
-    if (fd && (k === 'title' || k === 'sem' || k === 'year1')) fd[k] = el.value;
+    if (fd && (k === 'title' || k === 'sem' || k === 'year1' || k === 'buy')) fd[k] = el.value;
   });
 
   // Return / the blue Search key saves the search and closes the keyboard.
@@ -1499,7 +1579,9 @@
       if (yr !== l.year1) patch.year1 = yr;
       const handoff = d.drop && d.pick ? 'both' : (d.drop ? 'drop' : 'pickup');
       if (handoff !== l.handoff) patch.handoff = handoff;
-      if (!!d.sell !== !!l.openToSell) patch.openToSell = !!d.sell;
+      const buy = d.sell ? Math.round(Number(d.buy)) : null;
+      if (d.sell && !(buy > 0)) return toast('Add a sale price');
+      if (!!d.sell !== !!l.openToSell || (d.sell && buy !== l.buyPrice)) { patch.openToSell = !!d.sell; if (d.sell) patch.buyPrice = buy; }
       if (photosChanged(d, l)) patch.photos = d.photos.map((u) => (u.startsWith('data:') ? { data: u.split(',')[1] } : { key: u.split('/').pop() }));
       const back = d.back;
       if (!Object.keys(patch).length) { ui.edit = null; location.hash = back; return toast('No changes'); }
@@ -1515,13 +1597,15 @@
       if (!d.title.trim()) return toast('Add a title');
       if (!(sem > 0)) return toast('Add a price per semester');
       if (!d.drop && !d.pick) return toast('Choose at least one handoff option');
+      const buy = d.sell ? Math.round(Number(d.buy)) : null;
+      if (d.sell && !(buy > 0)) return toast('Add a sale price');
       if (d.busy) return;
       d.busy = true; rerender();
       AUTH.call('/listings', {
         method: 'POST',
         body: JSON.stringify({
           type: typeFor(d.cat, d.title), title: d.title.trim(), condition: d.condition, sem, year1: yr,
-          handoff: d.drop && d.pick ? 'both' : (d.drop ? 'drop' : 'pickup'), openToSell: d.sell, generateAr: !!(d.ar && d.photos.length),
+          handoff: d.drop && d.pick ? 'both' : (d.drop ? 'drop' : 'pickup'), openToSell: d.sell, buyPrice: buy, generateAr: !!(d.ar && d.photos.length),
           photos: d.photos.map((url) => url.split(',')[1])
         })
       }).then((r) => {

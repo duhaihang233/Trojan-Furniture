@@ -599,3 +599,16 @@ model-viewer.ar-stage { display: block; width: 100%; height: 380px; background: 
 .photo .fit-btn.ar-busy .spinner { width: 14px; height: 14px; border-width: 2px; }
 .ar-gen { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .ar-gen svg { width: 18px; height: 18px; }
+
+/* Cart */
+.cart-btn { position: relative; color: #fff; }
+.cart-dot { position: absolute; top: 4px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--gold); color: var(--ink); font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+.buy-btns { flex: 1; display: flex; gap: 8px; }
+.buy-btns .btn { flex: 1; padding-left: 8px; padding-right: 8px; white-space: nowrap; }
+.buy-btns .btn svg { width: 18px; height: 18px; }
+.cart-row { display: flex; flex-direction: column; gap: 10px; }
+.cart-row > a.row { flex-direction: row; align-items: center; gap: 12px; }
+.cart-empty > svg, .ar-empty > svg { width: 48px; height: 48px; color: var(--cardinal); display: block; margin: 0 auto 8px; }
+.ar-empty { display: flex; flex-direction: column; gap: 12px; text-align: center; padding: 28px 18px; background: #fff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.ar-empty h2 { margin: 0; font-size: 22px; }
+.ar-empty .sub { margin: 0; }
