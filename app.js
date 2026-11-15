@@ -340,7 +340,7 @@
       ${mine ? '' : `<button type="button" class="icon-btn" data-action="fav" data-id="${esc(id)}" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites" style="position:absolute;top:8px;left:8px;color:var(--cardinal)">${I.heart(fav)}</button>`}</div>
     ${photos.length > 1 ? `<div class="hscroll" style="padding:10px 16px 0">${photos.map((src, i) => `<button type="button" class="thumb photo-pick ${src === shown ? 'on' : ''}" data-action="photo-idx" data-id="${i}" aria-label="Photo ${i + 1}" aria-pressed="${src === shown}"><img src="${esc(src)}" alt=""></button>`).join('')}</div>` : ''}
     <section class="section">
-      <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2><p class="sub" style="margin:4px 0 0">${esc(typeOf(l).blurb)}</p></div>
+      <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2><p class="sub" style="margin:4px 0 0">${esc(l.sample ? typeOf(l).blurb : (D.categories.find((c) => c.id === catOf(l)) || {}).label || '')}</p></div>
       <div class="card pad row">
         <span class="${avClass(l.seller)}">${esc(initial(l.seller))}</span>
         <span class="grow"><span class="row" style="gap:6px;font-weight:700">${esc(l.seller)}${mine ? ' (you)' : ''} ${I.verified}</span>
@@ -403,7 +403,7 @@
   }
 
   function sellScreen() {
-    const d = ui.draft || (ui.draft = { photos: [], type: 'bean', title: D.types.bean.name, condition: 'Like new', sem: '', year1: '', drop: true, pick: true, sell: false });
+    const d = ui.draft || (ui.draft = { photos: [], cat: 'seat', title: '', condition: 'Like new', sem: '', year1: '', drop: true, pick: true, sell: false });
     const conds = ['New', 'Like new', 'Good'];
     return `${topbar('List an item')}
     <form class="section" data-form="sell" novalidate>
@@ -421,17 +421,15 @@
           : 'Let Claude turn your photos into a 3D model, so students can place your item in their room with AR.'}</span>
       </div>
       <div class="field"><span class="label">Category</span>
-        <div class="chips" role="radiogroup" aria-label="Category">${D.categories.filter((c) => c.id !== 'all').map((c) => `<button type="button" role="radio" class="chip ${D.types[d.type].cat === c.id ? 'on' : ''}" aria-checked="${D.types[d.type].cat === c.id}" data-action="sell-cat" data-id="${c.id}">${esc(c.label)}</button>`).join('')}</div></div>
-      <div class="field"><label for="f-type">Item</label>
-        <select id="f-type" class="input" data-input="type">${Object.entries(D.types).filter(([, t]) => t.cat === D.types[d.type].cat).map(([k, t]) => `<option value="${k}" ${d.type === k ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>
-      <div class="field"><label for="f-title">Title</label><input id="f-title" class="input" data-input="title" value="${esc(d.title)}" maxlength="40"></div>
+        <div class="chips" role="radiogroup" aria-label="Category">${D.categories.filter((c) => c.id !== 'all').map((c) => `<button type="button" role="radio" class="chip ${d.cat === c.id ? 'on' : ''}" aria-checked="${d.cat === c.id}" data-action="sell-cat" data-id="${c.id}">${esc(c.label)}</button>`).join('')}</div></div>
+      <div class="field"><label for="f-title">Title</label><input id="f-title" class="input" data-input="title" value="${esc(d.title)}" maxlength="40" placeholder="${esc(TITLE_EXAMPLES[d.cat] || 'What are you renting out?')}"></div>
       <div class="field"><span class="label">Condition</span>
         <div class="pills" role="radiogroup" aria-label="Condition">${conds.map((c) => `<button type="button" role="radio" class="pill ${d.condition === c ? 'on' : ''}" aria-checked="${d.condition === c}" data-action="cond" data-id="${c}">${c}</button>`).join('')}</div></div>
       <div class="row" style="gap:10px">
         <div class="field" style="flex:1"><label for="f-sem">Per semester ($)</label><input id="f-sem" class="input" type="number" inputmode="numeric" min="1" data-input="sem" value="${esc(d.sem)}" placeholder="27"></div>
         <div class="field" style="flex:1"><label for="f-yr">Full year ($)</label><input id="f-yr" class="input" type="number" inputmode="numeric" min="1" data-input="year1" value="${esc(d.year1)}" placeholder="49"></div>
       </div>
-      <span class="meta" id="hint">${esc(priceHint(d.type))}</span>
+      <span class="meta" id="hint">${esc(priceHint(d.cat))}</span>
       <div class="field"><span class="label">How will you hand it off?</span>
         <label class="check"><input type="checkbox" data-input="drop" ${d.drop ? 'checked' : ''}>I'll drop it off at their hall</label>
         <label class="check"><input type="checkbox" data-input="pick" ${d.pick ? 'checked' : ''}>They pick up at my spot</label></div>
@@ -440,9 +438,25 @@
       <span class="note">Only signed-in USC students can see your listing. You can hide or delete it any time from My Account.</span>
     </form>`;
   }
-  function priceHint(type) {
-    const ps = D.listings.filter((l) => l.type === type).map((l) => l.sem);
-    return `Similar ${D.types[type].name.toLowerCase()}s on TroShare rent for $${Math.min(...ps)}–$${Math.max(...ps)} a semester.`;
+  function priceHint(cat) {
+    const ps = market().filter((l) => catOf(l) === cat).map((l) => l.sem);
+    const label = (D.categories.find((c) => c.id === cat) || {}).label || 'Items';
+    return ps.length ? `${label} items on TroShare rent for $${Math.min(...ps)}–$${Math.max(...ps)} a semester.` : '';
+  }
+  const TITLE_EXAMPLES = {
+    kitchen: 'e.g. Black compact microwave', light: 'e.g. Gold floor lamp', cool: 'e.g. Quiet tower fan',
+    seat: 'e.g. Gray bean bag chair', sleep: 'e.g. XL twin mattress topper', tech: 'e.g. 32-inch TV with remote',
+    storage: 'e.g. 3-tier rolling cart'
+  };
+  // The server still files each listing under an item type (stock picture, category filter, typical
+  // AR model). Sellers only pick a category and write a title, so the type comes from the title's
+  // words, or the first kind in the category.
+  const TYPE_WORDS = { micro: /micro ?wave/, floor: /floor|standing|arc lamp|torch/, lamp: /lamp|light/, tv: /\btv\b|television|monitor|screen|display/, bean: /bean ?bag|beanbag/, fan: /\bfan\b|cooler|air ?con/, topper: /topper|mattress|pad/, cart: /cart|shel|drawer|organi[sz]er|rack|bin/ };
+  function typeFor(cat, title) {
+    const t = String(title || '').toLowerCase();
+    // TYPE_WORDS is in order of precedence ("floor lamp" before "lamp").
+    const match = Object.keys(TYPE_WORDS).find((k) => D.types[k].cat === cat && TYPE_WORDS[k].test(t));
+    return match || Object.keys(D.types).find((k) => D.types[k].cat === cat);
   }
 
   function inboxScreen() {
@@ -1316,15 +1330,7 @@
       case 'retry-load': loadServer().then(rerender); rerender(); break;
       case 'room-tab': ui.roomTab = id; rerender(); break;
       case 'ar-pick': ui.arType = id; rerender(); break;
-      case 'sell-cat': {
-        // Same categories as the Home chips; picking one switches the item to the first kind in it.
-        const d = ui.draft, old = D.types[d.type].name;
-        if (D.types[d.type].cat !== id) {
-          d.type = Object.keys(D.types).find((k) => D.types[k].cat === id);
-          if (!d.title || d.title === old) d.title = D.types[d.type].name;
-        }
-        rerender(); break;
-      }
+      case 'sell-cat': ui.draft.cat = id; rerender(); break; // same categories as the Home chips
       case 'ar-desk': toast('Open TroShare on your iPhone to use the camera'); break;
       case 'residence': { const f = app.querySelector('[data-form=profile]'); if (f) f.scrollIntoView({ behavior: 'smooth' }); break; }
       case 'sample-data':
@@ -1394,7 +1400,6 @@
       if (f && d.photos.length < MAX_LISTING_PHOTOS) compress(f).then((url) => { d.photos.push(url); rerender(); }).catch(() => toast("Couldn't read that photo"));
       return;
     }
-    if (k === 'type') { const old = D.types[d.type].name; d.type = el.value; if (!d.title || d.title === old) d.title = D.types[d.type].name; rerender(); return; }
     if (k === 'drop' || k === 'pick' || k === 'sell') { d[k] = el.checked; return; }
   });
 
@@ -1461,7 +1466,7 @@
       AUTH.call('/listings', {
         method: 'POST',
         body: JSON.stringify({
-          type: d.type, title: d.title.trim(), condition: d.condition, sem, year1: yr,
+          type: typeFor(d.cat, d.title), title: d.title.trim(), condition: d.condition, sem, year1: yr,
           handoff: d.drop && d.pick ? 'both' : (d.drop ? 'drop' : 'pickup'), openToSell: d.sell, generateAr: !!(d.ar && d.photos.length),
           photos: d.photos.map((url) => url.split(',')[1])
         })
