@@ -147,9 +147,21 @@ export default {
     let session;
     try {
       if (method === 'POST' && path === '/auth/google') return reply(200, await signIn(request, env));
+      if (method === 'POST' && path === '/auth/guest') return reply(200, await guestSignIn(request, env));
       session = await readSession(request, env);
       if (!session) return fail(401, 'Please log in with your USC account.');
       if (!env.DB) throw new HttpError(500, 'The database is not set up yet.');
+      // Guest demo accounts: browse, and walk through listing an item up to Publish. Nothing else is saved.
+      if (session.guest) {
+        const ai = method === 'POST' && (path === '/listings/draft' || path === '/listings/check');
+        const allowed = method === 'GET' || ai || (method === 'POST' && path === '/notifications/read') || (method === 'PUT' && path === '/me/profile');
+        if (!allowed) return fail(403, "Guest demo: sign in with your USC account to do this. Guests can browse and try listing an item, but can't publish, rent, buy, message or save.");
+        // Guests share an AI budget per network, so signing in again doesn't reset it.
+        if (ai && env.LIMITER) {
+          const { success } = await env.LIMITER.limit({ key: 'guest-ai:' + (request.headers.get('CF-Connecting-IP') || 'unknown') });
+          if (!success) return fail(429, 'The guest demo is busy. Wait a minute and try again.');
+        }
+      }
       const photoBase = `${url.origin}/photos/`;
       if (method === 'GET' && path === '/me') {
         const user = await ensureUser(env, session);
@@ -266,6 +278,8 @@ export default {
     ctx.waitUntil(remindReturns(env, ctx));
     // Listings published before the USC Housing check existed get checked a few at a time.
     ctx.waitUntil(auditListings(env, ctx, 5, notify));
+    // Guest demo accounts are throwaway: remove the ones not used for two days.
+    ctx.waitUntil(env.DB.prepare("DELETE FROM users WHERE sub LIKE 'guest-%' AND last_seen < ?").bind(Date.now() - 2 * 86400_000).run());
   },
 };
 
@@ -359,7 +373,7 @@ async function readSession(request, env) {
   return auth.startsWith('Bearer ') ? readSessionToken(auth.slice(7), env.SESSION_SECRET) : null;
 }
 
-const publicUser = (s) => ({ email: s.email, name: s.name, given: s.given, family: s.family, picture: s.picture });
+const publicUser = (s) => ({ email: s.email, name: s.name, given: s.given, family: s.family, picture: s.picture, ...(s.guest ? { guest: true } : {}) });
 
 const profileOf = (u) => ({ year: (u && u.year) || '', hall: (u && u.hall) || '', since: (u && u.since) || null });
 
@@ -392,6 +406,26 @@ async function signIn(request, env) {
   const row = await ensureUser(env, user);
   const { token, exp } = await makeSessionToken(user, env.SESSION_SECRET);
   return { token, exp, user: publicUser(user), profile: profileOf(row), favorites: await listFavorites(env, user.sub) };
+}
+
+/**
+ * Guest demo sign-in (only while GUEST_DEMO is "on" in wrangler.toml). Each visitor gets a fresh,
+ * throwaway account set to a Junior in Webb Tower; it lasts a day and is deleted by the cron after two.
+ */
+async function guestSignIn(request, env) {
+  if (env.GUEST_DEMO !== 'on') throw new HttpError(404, 'The guest demo is turned off.');
+  if (!env.SESSION_SECRET || !env.DB) throw new HttpError(500, 'Accounts are not set up yet.');
+  if (env.LIMITER) {
+    const { success } = await env.LIMITER.limit({ key: 'guest-login:' + (request.headers.get('CF-Connecting-IP') || 'unknown') });
+    if (!success) throw new HttpError(429, 'Too many guest sign-ins from this network. Wait a minute and try again.');
+  }
+  const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  const user = { sub: 'guest-' + id, email: `guest-${id}@demo.troshare.invalid`, name: 'Guest Trojan', given: 'Guest', family: 'Trojan', picture: '', guest: true };
+  await ensureUser(env, user);
+  await env.DB.prepare("UPDATE users SET year = 'Junior', hall = 'webb' WHERE sub = ?").bind(user.sub).run();
+  const row = await env.DB.prepare('SELECT * FROM users WHERE sub = ?').bind(user.sub).first();
+  const { token, exp } = await makeSessionToken(user, env.SESSION_SECRET, 1);
+  return { token, exp, user: publicUser(user), profile: profileOf(row), favorites: [] };
 }
 
 async function saveProfile(request, env, session) {

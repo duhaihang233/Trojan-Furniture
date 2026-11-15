@@ -211,10 +211,12 @@
   /* ---------- shared pieces ---------- */
   function topbar(title, backHref) {
     if (!title) {
-      return `<header class="topbar"><span class="spacer44"></span><a class="wordmark" href="#/home">TROSHARE</a>${cartButton()}</header>`;
+      return `<header class="topbar"><span class="spacer44"></span><a class="wordmark" href="#/home">TROSHARE</a>${cartButton()}</header>${guestBar()}`;
     }
-    return `<header class="topbar">${backHref ? `<a class="icon-btn" href="${backHref}" data-action="back" aria-label="Back">${I.back}</a>` : '<span class="spacer44"></span>'}<h1>${esc(title)}</h1>${cartButton()}</header>`;
+    return `<header class="topbar">${backHref ? `<a class="icon-btn" href="${backHref}" data-action="back" aria-label="Back">${I.back}</a>` : '<span class="spacer44"></span>'}<h1>${esc(title)}</h1>${cartButton()}</header>${guestBar()}`;
   }
+  // Guest demo (hackathon only): say so on every screen, with a way out to the real sign-in.
+  const guestBar = () => (AUTH.isGuest() ? `<div class="guest-bar" role="note"><span><b>Guest demo</b> · browse and try listing; nothing is saved</span><button type="button" class="link" data-action="guest-exit">Sign in with USC</button></div>` : '');
   // Cart in the top right of every screen (not on the cart and checkout themselves).
   let lastCartCount = Infinity; // no bounce on the first draw
   function cartButton() {
@@ -621,9 +623,10 @@
       </div>
       <span class="meta" id="hint">${esc(priceHint(d.cat))}${easy ? ' Leave the full year empty to use 1.8× the semester price.' : ''}</span>` : ''}
       ${easy && !d.photos.length ? '' : handoffAndMore}
+      ${!editing && d.demoDone && AUTH.isGuest() ? `<div class="demo-done" id="demo-done" role="status">${I.check}<div><b>That's the whole listing flow.</b><span>With a USC account, Publish puts your item live for other students right here${d.ar ? ', and Claude starts building its AR model' : ''}. In the guest demo nothing is published.</span><button type="button" class="btn btn-cardinal btn-small" data-action="guest-exit">Sign in with USC to list for real</button></div></div>` : ''}
       ${easy && !d.photos.length ? '' : `<button type="submit" class="btn btn-cardinal" ${d.busy || ai.status === 'busy' ? 'disabled' : ''}>${editing ? (d.busy ? 'Saving…' : 'Save changes') : (d.busy ? 'Publishing…' : (ai.status === 'busy' ? 'Waiting for Claude…' : 'Publish listing'))}</button>`}
       ${editing ? `<a class="btn btn-outline" href="${esc(d.back)}">Cancel</a>
-      <span class="note">Changes show to other students right away.</span>` : '<span class="note">Only signed-in USC students can see your listing. You can hide or delete it any time from My Account.</span>'}
+      <span class="note">Changes show to other students right away.</span>` : (AUTH.isGuest() ? '<span class="note">Guest demo: Publish shows the last step without listing anything.</span>' : '<span class="note">Only signed-in USC students can see your listing. You can hide or delete it any time from My Account.</span>')}
     </form>`;
   }
   // "AI Generate AR model" switch on a new listing (and the rebuild note when editing photos).
@@ -1278,7 +1281,7 @@
         <span class="grow"><span class="h2" style="font-size:20px;display:block">Your profile</span>
           <span class="meta">${esc(D.me.year || 'Add your class year')} · ${esc(AUTH.profile && AUTH.profile.hall ? hallById(D.me.hall).name : 'Add where you live')}</span></span>
         <span class="chev">${I.chev}</span></a>
-      ${roommatesCard()}
+      ${AUTH.isGuest() ? `<div class="card pad stack guest-card"><h2 class="h2">You're in the guest demo</h2><span class="meta">This account exists only for trying TroShare at the demo. Browse listings, preview items in AR, and go through listing an item up to Publish. Renting, buying, messaging, favorites and roommates need a USC account.</span><button type="button" class="btn btn-cardinal btn-small" data-action="guest-exit">Sign in with your USC account</button></div>` : roommatesCard()}
       ${ratingCard()}
       <div class="card pad" style="display:flex;flex-direction:column;gap:10px">
         <h2 class="h2" style="font-size:20px">My rentals</h2>
@@ -1290,7 +1293,7 @@
       <div class="card pad" style="display:flex;flex-direction:column;gap:4px"><h2 class="h2" style="font-size:20px">Favorites</h2>
         ${favs.length ? favs.map((l) => `<div class="list-row"><a class="row grow" href="#/item/${l.id}" style="flex-direction:row;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta"><b style="color:var(--cardinal)">${money(l.sem)}/sem</b> · ${esc(l.seller)} · ${esc(hallById(l.hall).name)}</span></span></a><button type="button" class="icon-btn" style="color:var(--cardinal)" data-action="fav" data-id="${l.id}" aria-label="Remove ${esc(nameOf(l))} from favorites">${I.heart(true)}</button></div>`).join('') : '<p class="empty">Tap the heart on a listing to save it.</p>'}
       </div>
-      ${pushCard(false)}
+      ${AUTH.isGuest() ? '' : pushCard(false)}
       <a class="card pad profile-link" href="#/guide" data-action="guide-open"><span class="grow"><span class="h2" style="font-size:20px;display:block">How TroShare works</span><span class="meta">Renting, handoff, returns and ratings in 4 steps</span></span><span class="chev">${I.chev}</span></a>
       <button type="button" class="btn btn-outline" data-action="logout">Log out</button>
       <div class="card pad stack">
@@ -2010,6 +2013,7 @@
         break;
       }
       case 'acc-tab': ui.accTab = id; rerender(); break;
+      case 'guest-exit': if (window.TS_INTRO) window.TS_INTRO.logout(); break;
       case 'inbox-tab': ui.inboxTab = id; rerender(); break;
       case 'order-act': {
         const act = el.dataset.act;
@@ -2324,6 +2328,7 @@
       const buy = d.sell ? Math.round(Number(d.buy)) : null;
       if (d.sell && !(buy > 0)) return toast('Add a sale price');
       if (d.busy) return;
+      if (AUTH.isGuest()) { d.demoDone = true; rerender(); const c = document.getElementById('demo-done'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
       d.busy = true; rerender();
       AUTH.call('/listings', {
         method: 'POST',

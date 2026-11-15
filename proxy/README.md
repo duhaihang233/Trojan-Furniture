@@ -30,6 +30,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | Method and path | What it does |
 |---|---|
 | `POST /auth/google` | Exchanges a Google ID token for a TroShare session (USC accounts only) |
+| `POST /auth/guest` | Guest demo account (only while `GUEST_DEMO` is `"on"`): browse, Easy list and the housing check only; everything else is 403. Lasts a day; removed by the cron after two |
 | `GET /me` | Your account, profile, favorites and rating |
 | `PUT /me/profile` | Saves your class year and hall |
 | `GET /listings` | Everyone's available listings, plus all of yours |

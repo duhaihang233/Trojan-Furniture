@@ -53,6 +53,9 @@ GOOGLE_CLIENT_ID = "53504650186-br07fmrs9d8apcmd502ttnd4lkjv6cua.apps.googleuser
 # The private half is a Worker secret: VAPID_PRIVATE_JWK (the key as a JWK).
 VAPID_PUBLIC_KEY = "BKPuBG6sP-Q0nBVDgUqUxR5qZ1-9lUz3JnBgFtbSDkcR1V6H5EE0CMVzS6sZizDzzFu6VmW92jdapBm568f9FQw"
 VAPID_SUBJECT = "https://duhaihang233.github.io/Trojan-Furniture/"
+# Guest demo login for the hackathon: "on" lets visitors try TroShare without a USC account (browse, and
+# walk through listing an item up to Publish). Set to "off" and deploy to turn it off.
+GUEST_DEMO = "on"
 
 # Every day at 17:00 UTC (9 or 10 am in Los Angeles): return reminders (orders.js remindReturns).
 [triggers]

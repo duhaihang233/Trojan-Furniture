@@ -49,6 +49,14 @@ window.TS_AUTH = (() => {
     configured: () => !!cfg.googleClientId,
     call,
 
+    /** Guest demo account (hackathon demo only): browse and try listing, nothing is saved. */
+    isGuest: () => !!(session && session.user && session.user.guest),
+    async signInAsGuest() {
+      const r = await call('/auth/guest', { method: 'POST' });
+      write(r);
+      window.dispatchEvent(new Event('ts-signed-in'));
+      return r;
+    },
     async signInWithGoogle(credential) {
       const r = await call('/auth/google', { method: 'POST', body: JSON.stringify({ credential }) });
       write(r);

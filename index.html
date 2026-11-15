@@ -63,10 +63,15 @@
                   <p class="intro-note">Only @usc.edu accounts can log in.</p>
                   <p class="intro-error" id="intro-error" role="alert" hidden></p>
                   <button type="button" class="btn btn-outline btn-small intro-retry" id="intro-retry" hidden>Try again</button>
+                  <div class="intro-guest" id="intro-guest" hidden>
+                    <span class="intro-or">or</span>
+                    <button type="button" class="btn btn-outline" id="guest-login">Try the demo as a guest</button>
+                    <p class="intro-note"><b>For this demo only:</b> a guest account lets you try TroShare without a USC login. You can browse listings and go through every step of listing an item, but nothing is published, rented, bought or sent.</p>
+                  </div>
                 </div>
                 <div class="intro-step intro-card" id="intro-wait" role="status" hidden>
                   <span class="spinner" aria-hidden="true"></span>
-                  <p>Checking your USC account…</p>
+                  <p id="intro-wait-text">Checking your USC account…</p>
                 </div>
                 <p class="intro-fine">TroShare is only for current USC students.<br>By logging in you agree to the Terms and Community Guidelines.</p>
               </div>

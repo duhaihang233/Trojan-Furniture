@@ -13,6 +13,12 @@ Built for the USC **"Building for Trojans"** hackathon.
 
 - **Opening animation + USC login** — a gold T and S come together and open up into “TroShare,”
   then the red screen shrinks into the login header. Only verified @usc.edu Google accounts can log in.
+- **Guest demo (hackathon only)** — "Try the demo as a guest" on the sign-in screen gives visitors a
+  throwaway account to try TroShare without a USC login: browse listings, preview AR, and go through every
+  step of listing an item (Easy list and the USC Housing check included) up to Publish, which only shows
+  the last step. The server refuses everything else for guests (publishing, orders, chat, favorites,
+  roommates, the room planner). Turn it off with `GUEST_DEMO = "off"` in `proxy/wrangler.toml` (and
+  `guestDemo: false` in `config.js`).
 - **Real accounts** — your profile (class year, hall), listings, favorites and chats are saved on the
   TroShare server, so they follow you to any device you log in from.
 - **Interactive housing map** — every USC residence (all 48 on USC Housing's list) can be your hall.

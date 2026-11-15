@@ -151,6 +151,19 @@
     gid.renderButton(box, { type: 'standard', theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with', logo_alignment: 'left', locale: 'en', width: Math.min(320, box.clientWidth || 320) });
   }
 
+  // Guest demo (hackathon only): a throwaway account to try the app without a USC login.
+  if (CFG.guestDemo) {
+    $('intro-guest').hidden = false;
+    $('guest-login').addEventListener('click', async () => {
+      showError('');
+      $('intro-wait-text').textContent = 'Starting the guest demo…';
+      showWait(true);
+      try { await AUTH.signInAsGuest(); close(); }
+      catch (err) { showWait(false); showError(err.message); }
+      finally { $('intro-wait-text').textContent = 'Checking your USC account…'; }
+    });
+  }
+
   window.TS_INTRO = {
     logout() { location.hash = '#/home'; AUTH.signOut(); } // signOut fires ts-signed-out, which shows the login screen
   };
