@@ -115,6 +115,16 @@ icons/                App icons
   (D1 database + KV), along with chats between real students. The original sample items were moved onto
   the server as Thomas Du's listings, and so are orders, ratings and notifications. Payment isn't handled in the
   app (renters pay the seller at the handoff). The demo chats from **Load sample activity** are simulated on your device.
+- Photos on Jerry Wu's and Sophia Li's demo listings are from Wikimedia Commons:
+  "Battery powered LED desk lamp-7420" by Raimond Spekking (CC BY-SA 4.0);
+  "Floor fan Matsui EF20TRS" by Elgiganten (CC BY 3.0);
+  "Fujidenzo mini fridge" by DiwangPingkian (CC BY-SA 3.0);
+  "Buerostuhl (fcm)" by Frank C. Müller (CC BY-SA 4.0);
+  "LG Microwave oven" by Santeri Viinamäki (CC BY-SA 4.0);
+  "Floor lamp 1 2016-07-06" by FASTILY (CC BY-SA 4.0);
+  "Bean-Bag-chair-Fatboy-Camuflage" by Natwiki31 (CC BY-SA 4.0);
+  "Holmes tower fan" by Arbitrarily0 (CC BY-SA 3.0);
+  "Electric kettle phillips white" by Rafa and "Mirai LCD TV" by CHG (public domain).
 - The sample room photo (`images/sample-room.jpg`) is “Endicott College Stoneridge Hall empty dorm room”
   by Sdkb, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Endicott_College_Stoneridge_Hall_empty_dorm_room.jpg),
   licensed CC BY-SA 4.0.
