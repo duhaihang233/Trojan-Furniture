@@ -28,7 +28,7 @@ const ALLOWED_ORIGINS = new Set([
 
 const ITEM_NAMES = {
   micro: 'Compact microwave', tv: '32″ HD TV', bean: 'Bean bag chair', lamp: 'LED desk lamp', floor: 'Floor lamp',
-  fan: 'Quiet tower fan', topper: 'XL twin topper', cart: 'Storage cart',
+  fan: 'Quiet tower fan', topper: 'XL twin topper', cart: 'Storage cart', mirror: 'Full-length mirror',
 };
 // Every USC residence, by the id the app uses (same list as `halls` in data.js).
 const HALL_NAMES = {

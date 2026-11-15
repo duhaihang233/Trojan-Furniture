@@ -5,7 +5,7 @@
 import { HttpError } from './worker.js';
 
 export const EASY_MODEL = 'claude-opus-5-5';
-const CATEGORIES = ['kitchen', 'light', 'cool', 'seat', 'sleep', 'tech', 'storage'];
+const CATEGORIES = ['kitchen', 'light', 'cool', 'seat', 'sleep', 'tech', 'storage', 'decor'];
 const CONDITIONS = ['New', 'Like new', 'Good', 'Fair'];
 const MAX_PHOTOS = 4;
 const MAX_PHOTO_BASE64 = 1_400_000; // the app sends ~640px JPEGs of about 60 KB
@@ -21,7 +21,8 @@ Write:
   seat (chairs, desk chairs, bean bags, ottomans, stools),
   sleep (mattress toppers, pillows, bedding, bed risers),
   tech (TVs, monitors, speakers, printers, gaming consoles),
-  storage (carts, drawers, shelves, bins, hampers, organizers).
+  storage (carts, drawers, shelves, bins, hampers, organizers),
+  decor (mirrors, rugs, wall art, curtains).
   Pick the closest one; if nothing fits well, use storage.
 - condition: judge only from what is visible, and lean toward the lower grade when unsure, because renters trust these labels.
   New: still sealed or in its original packaging.

@@ -62,12 +62,13 @@ window.TS_DATA = (() => {
     floor: { name: 'Floor lamp', cat: 'light', img: 'images/floor.jpg', blurb: 'Gold stand · Linen shade · Warm light' },
     fan: { name: 'Quiet tower fan', cat: 'cool', img: 'images/fan.jpg', blurb: '3 speeds · Quiet enough for your roommate' },
     topper: { name: 'XL twin topper', cat: 'sleep', img: 'images/topper.jpg', blurb: 'Fits USC XL twin beds (36″ × 80″)' },
-    cart: { name: 'Storage cart', cat: 'storage', img: 'images/cart.jpg', blurb: '4 tiers · Rolls beside your desk' }
+    cart: { name: 'Storage cart', cat: 'storage', img: 'images/cart.jpg', blurb: '4 tiers · Rolls beside your desk' },
+    mirror: { name: 'Full-length mirror', cat: 'decor', img: 'images/mirror.jpg', blurb: 'About 14″ × 50″ · Black frame · Hangs over the door or leans on a wall' }
   };
 
   const categories = [
     { id: 'all', label: 'All' }, { id: 'kitchen', label: 'Kitchen' }, { id: 'light', label: 'Lighting' }, { id: 'cool', label: 'Cooling' },
-    { id: 'seat', label: 'Seating' }, { id: 'sleep', label: 'Sleep' }, { id: 'tech', label: 'Tech' }, { id: 'storage', label: 'Storage' }
+    { id: 'seat', label: 'Seating' }, { id: 'sleep', label: 'Sleep' }, { id: 'tech', label: 'Tech' }, { id: 'storage', label: 'Storage' }, { id: 'decor', label: 'Decor' }
   ];
 
   // [hall, type, seller, class year, rating, rentals, condition, $/semester, handoff options]
@@ -99,7 +100,11 @@ window.TS_DATA = (() => {
     // Microwaves are added last so existing listing ids (l1–l42) stay the same.
     ['webb', 'micro', 'Sara J.', 'Junior', 4.8, 6, 'Like new', 18, 'both'], ['village', 'micro', 'Omar B.', 'Senior', 4.9, 9, 'Good', 17, 'both'],
     ['newnorth', 'micro', 'Tina R.', 'Junior', 4.7, 4, 'Good', 18, 'drop'], ['pardee', 'micro', 'Kevin L.', 'Senior', 4.8, 5, 'Like new', 16, 'both'],
-    ['gateway', 'micro', 'Hana S.', 'Sophomore', 4.9, 3, 'Like new', 18, 'pickup'], ['parkside', 'micro', 'Diego M.', 'Senior', 4.6, 7, 'Good', 17, 'both']
+    ['gateway', 'micro', 'Hana S.', 'Sophomore', 4.9, 3, 'Like new', 18, 'pickup'], ['parkside', 'micro', 'Diego M.', 'Senior', 4.6, 7, 'Good', 17, 'both'],
+    // Full-length mirrors: about $20–30 new, so $6–8 a semester.
+    ['webb', 'mirror', 'Grace H.', 'Junior', 4.9, 5, 'Like new', 7, 'both'], ['village', 'mirror', 'Daniel K.', 'Senior', 4.8, 7, 'Good', 6, 'both'],
+    ['newnorth', 'mirror', 'Chloe T.', 'Sophomore', 4.7, 2, 'Like new', 7, 'drop'], ['pardee', 'mirror', 'Ryan P.', 'Junior', 4.8, 4, 'Good', 6, 'pickup'],
+    ['gateway', 'mirror', 'Nina V.', 'Senior', 4.9, 8, 'Like new', 8, 'both'], ['parkside', 'mirror', 'Leo M.', 'Sophomore', 4.6, 3, 'Good', 6, 'both']
   ];
 
   // Where a seller meets you for pickup: the hall's lobby unless it has a better-known spot.

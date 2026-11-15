@@ -1,13 +1,13 @@
 // TroShare service worker.
 // Pages, scripts and styles are network-first, so a new deploy shows up on the next load;
 // the cache is only a fallback for offline use. Images are cache-first because they rarely change.
-const CACHE = 'troshare-v39';
+const CACHE = 'troshare-v40';
 const ASSETS = [
   './', './index.html', './styles.css', './config.js', './auth.js', './data.js', './armodel.js', './app.js', './intro.js', './manifest.webmanifest',
   './vendor/model-viewer.min.js',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png',
   './images/map.jpg', './images/bean.jpg', './images/lamp.jpg', './images/floor.jpg',
-  './images/fan.jpg', './images/topper.jpg', './images/tv.jpg', './images/cart.jpg', './images/micro.jpg', './images/sample-room.jpg',
+  './images/fan.jpg', './images/topper.jpg', './images/tv.jpg', './images/cart.jpg', './images/mirror.jpg', './images/micro.jpg', './images/sample-room.jpg',
   './models/lamp.glb', './models/lamp.usdz', './models/floor.glb', './models/floor.usdz',
   './models/fan.glb', './models/fan.usdz', './models/bean.glb', './models/bean.usdz',
   './models/tv.glb', './models/tv.usdz', './models/topper.glb', './models/topper.usdz',

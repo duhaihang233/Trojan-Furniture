@@ -79,8 +79,24 @@
 
   const stars = (l) => (typeof l.rating === 'number' ? '★ ' + l.rating.toFixed(1) : 'New seller');
 
+  // The demo items were imported to the server under one account (Thomas Du). Show each one under the
+  // student it originally came from in data.js (same item and hall), so the market reads as many
+  // different Trojans, all sophomores, juniors and seniors.
+  const DEMO_OWNER = /^thomas du$/i;
+  const DEMO_YEARS = ['Sophomore', 'Junior', 'Senior'];
+  function demoSeller(x) {
+    const hall = x.seller.hall;
+    const same = D.listings.filter((s) => s.type === x.type && s.hall === hall);
+    const pick = same.find((s) => s.sem === x.sem) || same[0];
+    if (pick) return { name: pick.seller, year: DEMO_YEARS.includes(pick.year) ? pick.year : 'Junior', rating: pick.rating, reviews: pick.rentals };
+    const all = D.listings;
+    const h = [...String(x.id)].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 7);
+    const s2 = all[h % all.length];
+    return { name: s2.seller, year: DEMO_YEARS[h % 3], rating: s2.rating, reviews: s2.rentals };
+  }
   // Server listing -> the shape the screens use (same fields as the built-in sample listings).
   function fromServer(x) {
+    if (!x.mine && x.seller && DEMO_OWNER.test(x.seller.name || '')) x = { ...x, seller: { ...x.seller, ...demoSeller(x) } };
     return {
       id: x.id, type: x.type, title: x.title, condition: x.condition, sem: x.sem, year1: x.year1, handoff: x.handoff,
       photo: x.photos[0] || null, photos: x.photos, hall: x.seller.hall, seller: x.seller.name, year: x.seller.year,
@@ -89,6 +105,13 @@
       housingReview: x.housingReview || null, // owner only: the audit says it's not allowed, or needs a confirmation
       ar: x.ar // AI AR model: null, or { status: 'in_progress' | 'success' | 'failed', error }
     };
+  }
+  function demoConvs(list) {
+    return (list || []).map((c) => {
+      if (!c.with || !DEMO_OWNER.test(c.with.name || '')) return c;
+      const l = c.listing && findListing(c.listing.id);
+      return l ? { ...c, with: { ...c.with, name: l.seller, year: l.year } } : c;
+    });
   }
   function putListing(x) {
     const l = fromServer(x);
@@ -111,9 +134,9 @@
       if (od.status === 'fulfilled') { server.orders = od.value.orders; server.ordersLoaded = true; }
       if (nt.status === 'fulfilled') setNotes(nt.value);
       if (me.status === 'fulfilled' && me.value) server.rating = me.value.rating || null;
-      if (l.status === 'fulfilled') { server.listings = l.value.listings.map(fromServer); server.loaded = true; server.at = Date.now(); }
+      if (l.status === 'fulfilled') { server.listings = l.value.listings.map(fromServer); server.convs = demoConvs(server.convs); server.loaded = true; server.at = Date.now(); }
       if (me.status === 'fulfilled' && me.value) server.favorites = me.value.favorites || [];
-      if (c.status === 'fulfilled') server.convs = c.value.conversations;
+      if (c.status === 'fulfilled') server.convs = demoConvs(c.value.conversations);
       const failed = [l, me, c].find((x) => x.status === 'rejected');
       if (failed) {
         server.error = failed.reason.message;
@@ -272,6 +295,9 @@
     const firstType = (l) => (l.type === 'micro' ? 0 : 1); // microwaves lead the list
     const order = ui.sort === 'price' ? (a, b) => firstType(a) - firstType(b) || a.sem - b.sem : (a, b) => firstType(a) - firstType(b) || hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem;
     items = items.sort(order);
+    // One card per kind of item: keep the closest (or cheapest) of each so nothing repeats.
+    const seenTypes = new Set();
+    items = items.filter((l) => !seenTypes.has(l.type) && seenTypes.add(l.type));
     const title = cur ? 'At ' + cur.name : 'Browse listings';
     const n = cur ? count(cur.id) : 0;
     const pill = cur ? (cur.home ? `${n} listings in your building` : `${n} listings at ${cur.name} · ${cur.walk}`) : 'Tap a hall to see what Trojans there are renting out';
@@ -724,12 +750,12 @@
   const TITLE_EXAMPLES = {
     kitchen: 'e.g. Black compact microwave', light: 'e.g. Gold floor lamp', cool: 'e.g. Quiet tower fan',
     seat: 'e.g. Gray bean bag chair', sleep: 'e.g. XL twin mattress topper', tech: 'e.g. 32-inch TV with remote',
-    storage: 'e.g. 3-tier rolling cart'
+    storage: 'e.g. 3-tier rolling cart', decor: 'e.g. Black full-length mirror'
   };
   // The server still files each listing under an item type (stock picture, category filter, typical
   // AR model). Sellers only pick a category and write a title, so the type comes from the title's
   // words, or the first kind in the category.
-  const TYPE_WORDS = { micro: /micro ?wave/, floor: /floor|standing|arc lamp|torch/, lamp: /lamp|light/, tv: /\btv\b|television|monitor|screen|display/, bean: /bean ?bag|beanbag/, fan: /\bfan\b|cooler|air ?con/, topper: /topper|mattress|pad/, cart: /cart|shel|drawer|organi[sz]er|rack|bin/ };
+  const TYPE_WORDS = { micro: /micro ?wave/, floor: /floor|standing|arc lamp|torch/, lamp: /lamp|light/, tv: /\btv\b|television|monitor|screen|display/, bean: /bean ?bag|beanbag/, fan: /\bfan\b|cooler|air ?con/, topper: /topper|mattress|pad/, cart: /cart|shel|drawer|organi[sz]er|rack|bin/, mirror: /mirror/ };
   function typeFor(cat, title) {
     const t = String(title || '').toLowerCase();
     // TYPE_WORDS is in order of precedence ("floor lamp" before "lamp").
@@ -826,6 +852,7 @@
 
   /* ---------- real chats: loading, sending, refreshing ---------- */
   function putConv(c) {
+    c = demoConvs([c])[0];
     const i = server.convs.findIndex((x) => x.id === c.id);
     if (i >= 0) server.convs[i] = { ...server.convs[i], ...c }; else server.convs.unshift(c);
     return c;
@@ -898,7 +925,7 @@
   function refreshConvs() {
     if (!AUTH.signedIn() || AUTH.needsSetup()) return Promise.resolve();
     return AUTH.call('/conversations').then((r) => {
-      server.convs = r.conversations;
+      server.convs = demoConvs(r.conversations);
       const { route } = parse();
       if (route === 'inbox') rerender(); else renderTabbar(route);
     }).catch(() => { /* try again next time */ });
@@ -920,7 +947,7 @@
     lastListingPoll = Date.now();
     const before = listingStates();
     AUTH.call('/listings').then((r) => {
-      server.listings = r.listings.map(fromServer);
+      server.listings = r.listings.map(fromServer); server.convs = demoConvs(server.convs);
       if (listingStates() === before) return;
       const { route } = parse();
       const typing = document.activeElement && document.activeElement.matches('input, textarea, select');
