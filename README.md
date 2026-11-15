@@ -13,8 +13,8 @@ Built for the USC **"Building for Trojans"** hackathon.
 
 - **Opening animation + USC login** — a gold T and S come together and open up into “TroShare,”
   then the red screen shrinks into the login header. Only verified @usc.edu Google accounts can log in.
-- **Real accounts** — your profile (class year, hall), listings and favorites are saved on the TroShare
-  server, so they follow you to any device you log in from.
+- **Real accounts** — your profile (class year, hall), listings, favorites and chats are saved on the
+  TroShare server, so they follow you to any device you log in from.
 - **Interactive housing map** — tap a residence hall (Webb Tower, USC Village, New North, Pardee,
   Gateway, Parkside) to see what students there are renting out, with walking times from your hall.
 - **Browse & search on Home** — listings from real students come first, then sample listings
@@ -26,7 +26,13 @@ Built for the USC **"Building for Trojans"** hackathon.
   options, and publish. With a photo, TroShare asks Claude how big the item is and builds a real-size AR
   model from that photo, usually within a minute. Every signed-in student sees the listing right away.
   Hide, show or delete it from the listing.
-- **Coming next:** renting, messaging and payments.
+- **Rent flow** — choose semester or full year, delivery or pickup (only what the seller offers),
+  and split the cost with your roommate.
+- **Checkout** — renting a real student's item sends them your rental request in a chat.
+  (Payment and the rental record are simulated on your device for now.)
+- **Chat** — message any seller from their listing. Chats with real students are real: they arrive in
+  the other student's Inbox with an unread badge and update live while the chat is open. Sample
+  sellers answer automatically. Tap **“Got it — confirm handoff”** when you get the item.
 - **Room Preview tab** — two tabs at the top:
   - **AR Preview** — pick an item and place it in your room at real size with the phone camera
     (AR Quick Look on iPhone, Scene Viewer on Android, a 3D model on a computer).
@@ -36,7 +42,7 @@ Built for the USC **"Building for Trojans"** hackathon.
     use the slider to resize, twist to rotate.
 - **AR Preview on listings** — the button on each listing's photo opens the same AR preview.
   A listing with a generated model uses that photo. Otherwise it uses a typical model for the category.
-- **My Account** — your profile, your listings, recently viewed and favorites.
+- **My Account** — your profile, rentals, your listings, recently viewed and favorites.
 - **Works like a native app on iPhone** — installable to the Home Screen, full-screen, offline-capable.
 
 ## Use it on iPhone
@@ -78,7 +84,8 @@ icons/                App icons
 ## Notes
 
 - Accounts, listings, photos and favorites are stored by the Cloudflare Worker in [`proxy/`](proxy/README.md)
-  (D1 database + KV). The built-in sample listings and their sellers are not real students.
+  (D1 database + KV), along with chats between real students. The built-in sample listings and their
+  sellers are not real students; rentals, payments and sample-seller chats are simulated on your device.
 - The sample room photo (`images/sample-room.jpg`) is “Endicott College Stoneridge Hall empty dorm room”
   by Sdkb, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Endicott_College_Stoneridge_Hall_empty_dorm_room.jpg),
   licensed CC BY-SA 4.0.

@@ -12,6 +12,13 @@ type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 5, period = 60 }
 
+# Chat messages: 30 per minute per student.
+[[unsafe.bindings]]
+name = "MSG_LIMITER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 30, period = 60 }
+
 # Profiles saved before the D1 database existed; read once to copy them into D1 (see ensureUser).
 [[kv_namespaces]]
 binding = "PROFILES"

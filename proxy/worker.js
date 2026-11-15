@@ -1,7 +1,7 @@
 // TroShare server (Cloudflare Worker).
 //
 // - Accounts: Google sign-in limited to verified @usc.edu accounts, then a TroShare session token.
-// - Data: student profiles, listings and favorites in D1 (schema.sql); listing photos in KV.
+// - Data: student profiles, listings, favorites and chats in D1 (schema.sql); listing photos in KV.
 // - AI: the web app never calls Anthropic itself, so visitors never need a key and the key never
 //   reaches the browser. This Worker builds two fixed Claude requests (room recommendations, and the
 //   real-world size of one listing photo). The photo model is a floor-standing box textured with that
@@ -105,6 +105,11 @@ export default {
       if (mm && method === 'POST') return reply(200, { listing: await generateListingModel(env, session, mm[1], photoBase) });
       const fm = path.match(/^\/favorites\/([A-Za-z0-9_-]{1,40})$/);
       if (fm && (method === 'PUT' || method === 'DELETE')) return reply(200, { favorites: await setFavorite(env, session.sub, fm[1], method === 'PUT') });
+      if (method === 'GET' && path === '/conversations') return reply(200, { conversations: await listConversations(env, session.sub, photoBase) });
+      if (method === 'POST' && path === '/conversations') return reply(200, { conversation: await startConversation(request, env, session, photoBase) });
+      const cm = path.match(/^\/conversations\/(c[0-9a-f]{16})\/messages$/);
+      if (cm && method === 'GET') return reply(200, await readMessages(env, session, cm[1], Number(url.searchParams.get('after')) || 0, photoBase));
+      if (cm && method === 'POST') return reply(201, { messages: await sendMessage(request, env, session, cm[1]) });
       if (method !== 'POST' || path !== '/analyze-room') return fail(404, 'Not found.');
     } catch (err) {
       if (err instanceof HttpError) return fail(err.status, err.message);
@@ -634,4 +639,114 @@ async function setFavorite(env, sub, listingId, on) {
     await env.DB.prepare('DELETE FROM favorites WHERE sub = ? AND listing_id = ?').bind(sub, listingId).run();
   }
   return listFavorites(env, sub);
+}
+
+/* ---------------- Chat ---------------- */
+
+const MAX_MESSAGE = 1000;
+const PLAN_LABEL = { sem: 'Semester', yr: 'Full year' };
+const HANDOFF_LABEL = { drop: 'Delivery to their hall lobby', pick: 'Pickup' };
+
+// One query for a student's conversations: the other student, the latest message, and how many are unread.
+const CONV_SELECT = `SELECT c.*, o.given AS o_given, o.family AS o_family, o.name AS o_name, o.year AS o_year, o.hall AS o_hall,
+    lm.text AS last_text, lm.sender AS last_sender, lm.kind AS last_kind,
+    (SELECT COUNT(*) FROM messages m WHERE m.conv_id = c.id AND m.sender != ?1
+       AND m.id > CASE WHEN c.buyer = ?1 THEN c.buyer_read ELSE c.seller_read END) AS unread
+  FROM conversations c
+  JOIN users o ON o.sub = CASE WHEN c.buyer = ?1 THEN c.seller ELSE c.buyer END
+  LEFT JOIN messages lm ON lm.id = (SELECT MAX(id) FROM messages WHERE conv_id = c.id)`;
+
+function convOut(row, me, photoBase) {
+  return {
+    id: row.id,
+    role: row.buyer === me ? 'buying' : 'selling',
+    listing: { id: row.listing_id, title: row.listing_title, type: row.listing_type, sem: row.listing_sem, photo: row.listing_photo ? photoBase + row.listing_photo : null },
+    with: { name: sellerName({ given: row.o_given, family: row.o_family, name: row.o_name }), year: row.o_year || '', hall: row.o_hall || '' },
+    last: row.last_text == null ? null : { text: row.last_text, mine: row.last_sender === me, kind: row.last_kind },
+    lastAt: row.last_at,
+    unread: row.unread || 0,
+  };
+}
+
+async function listConversations(env, me, photoBase) {
+  const { results } = await env.DB.prepare(`${CONV_SELECT} WHERE c.buyer = ?1 OR c.seller = ?1 ORDER BY c.last_at DESC LIMIT 100`).bind(me).all();
+  return results.map((r) => convOut(r, me, photoBase));
+}
+
+async function myConversation(env, me, id) {
+  const row = await env.DB.prepare(`${CONV_SELECT} WHERE c.id = ?2 AND (c.buyer = ?1 OR c.seller = ?1)`).bind(me, id).first();
+  if (!row) throw new HttpError(404, 'That conversation was not found.');
+  return row;
+}
+
+/** Opens (or reopens) the chat between you and the owner of a listing. */
+async function startConversation(request, env, session, photoBase) {
+  const input = await readJson(request, 5_000);
+  const listing = await env.DB.prepare('SELECT * FROM listings WHERE id = ?').bind(String(input.listingId || '')).first();
+  if (!listing) throw new HttpError(404, 'That listing no longer exists.');
+  if (listing.owner === session.sub) throw new HttpError(400, "That's your own listing.");
+  await ensureUser(env, session);
+  const now = Date.now();
+  await env.DB.prepare(`INSERT OR IGNORE INTO conversations (id, listing_id, buyer, seller, listing_title, listing_type, listing_photo, listing_sem, created_at, last_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind('c' + crypto.randomUUID().replace(/-/g, '').slice(0, 16), listing.id, session.sub, listing.owner, listing.title, listing.type,
+      JSON.parse(listing.photos || '[]')[0] || '', listing.sem, now, now).run();
+  const { id } = await env.DB.prepare('SELECT id FROM conversations WHERE listing_id = ? AND buyer = ?').bind(listing.id, session.sub).first();
+  return convOut(await myConversation(env, session.sub, id), session.sub, photoBase);
+}
+
+const messageOut = (m, me) => ({ id: m.id, mine: m.sender === me, kind: m.kind, text: m.text, at: m.created_at });
+
+/** Messages after `after` (or the latest 200), and marks them read for you. */
+async function readMessages(env, session, id, after, photoBase) {
+  const row = await myConversation(env, session.sub, id);
+  const { results } = after > 0
+    ? await env.DB.prepare('SELECT * FROM messages WHERE conv_id = ? AND id > ? ORDER BY id LIMIT 200').bind(id, after).all()
+    : await env.DB.prepare('SELECT * FROM (SELECT * FROM messages WHERE conv_id = ? ORDER BY id DESC LIMIT 200) ORDER BY id').bind(id).all();
+  const newest = results.length ? results[results.length - 1].id : 0;
+  const col = row.buyer === session.sub ? 'buyer_read' : 'seller_read';
+  if (newest > row[col]) await env.DB.prepare(`UPDATE conversations SET ${col} = ? WHERE id = ?`).bind(newest, id).run();
+  return { conversation: convOut({ ...row, unread: 0 }, session.sub, photoBase), messages: results.map((m) => messageOut(m, session.sub)) };
+}
+
+/**
+ * Sends a message. Instead of (or with) text, the buyer can send an event the server words itself:
+ * `rent` (with plan 'sem'|'yr' and handoff 'drop'|'pick') or `confirm` (handoff done).
+ */
+async function sendMessage(request, env, session, id) {
+  const input = await readJson(request, 10_000);
+  const row = await myConversation(env, session.sub, id);
+  const buyer = row.buyer === session.sub;
+  const out = [];
+  if (input.event !== undefined) {
+    if (!buyer) throw new HttpError(400, 'Only the renter can do that.');
+    if (input.event === 'rent') {
+      if (!PLAN_LABEL[input.plan] || !HANDOFF_LABEL[input.handoff]) throw new HttpError(400, 'Choose a rental length and handoff.');
+      out.push(['sys', `Rental request · ${PLAN_LABEL[input.plan]} · ${HANDOFF_LABEL[input.handoff]}`]);
+    } else if (input.event === 'confirm') {
+      out.push(['sys', 'Handoff confirmed by the renter']);
+    } else throw new HttpError(400, 'Unknown event.');
+  }
+  if (input.text !== undefined) {
+    const text = String(input.text).trim();
+    if (!text) throw new HttpError(400, 'Type a message.');
+    if (text.length > MAX_MESSAGE) throw new HttpError(400, `Keep messages under ${MAX_MESSAGE} characters.`);
+    out.push(['text', text]);
+  }
+  if (!out.length) throw new HttpError(400, 'Type a message.');
+  if (env.MSG_LIMITER) {
+    const { success } = await env.MSG_LIMITER.limit({ key: session.sub });
+    if (!success) throw new HttpError(429, "You're sending messages very quickly. Wait a moment and try again.");
+  }
+  const now = Date.now();
+  const sent = [];
+  for (const [kind, text] of out) {
+    const r = await env.DB.prepare('INSERT INTO messages (conv_id, sender, kind, text, created_at) VALUES (?, ?, ?, ?, ?) RETURNING *')
+      .bind(id, session.sub, kind, text, now).first();
+    sent.push(messageOut(r, session.sub));
+  }
+  // Your own messages count as read.
+  await env.DB.prepare(`UPDATE conversations SET last_at = ?, ${buyer ? 'buyer_read' : 'seller_read'} = ? WHERE id = ?`)
+    .bind(now, sent[sent.length - 1].id, id).run();
+  return sent;
 }

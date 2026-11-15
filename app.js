@@ -1,6 +1,7 @@
 /* TroShare — a peer-to-peer rental marketplace for USC students.
-   Single-page app, no build step. Accounts, listings and favorites live on the TroShare server
-   (proxy/worker.js); only per-device conveniences (map filter, recently viewed) stay in localStorage. */
+   Single-page app, no build step. Accounts, listings, favorites and chats with real students live on the
+   TroShare server (proxy/worker.js). Rentals, the cart and the chats with sample sellers are simulated
+   and stay in localStorage, along with per-device conveniences (map filter, recently viewed). */
 (() => {
   'use strict';
   const D = window.TS_DATA;
@@ -10,14 +11,15 @@
   const toastEl = document.getElementById('toast');
 
   /* ---------- state ---------- */
-  // Per-device conveniences for each signed-in student (map filter, category, recently viewed).
+  // Per-device state for each signed-in student: map filter, category, recently viewed, and the
+  // simulated cart, rentals and sample-seller chats.
   const stateKey = () => 'troshare-state-v2:' + (D.me.email || 'signed-out');
   let S = null; // loaded at startup, after applyUser()
   function load() {
     try {
       const raw = localStorage.getItem(stateKey());
       // Filters are per-visit: every launch opens on your own hall with All categories.
-      if (raw) { const s = JSON.parse(raw); if (s && s.version === 1) { s.cat = 'all'; s.hall = D.me.hall; return s; } }
+      if (raw) { const s = JSON.parse(raw); if (s && s.version === 1) return { ...D.emptyState(), ...s, cat: 'all', hall: D.me.hall }; }
     } catch (e) { /* storage unavailable: fall back to fresh state */ }
     return { ...D.emptyState(), hall: D.me.hall };
   }
@@ -27,10 +29,11 @@
   }
 
   // UI-only state (not persisted)
-  const ui = { itemId: null, photoIdx: 0, roomTab: 'ar', arType: null, q: '', sort: 'near', draft: null, modelBusy: null };
+  const ui = { plan: 'sem', hand: null, split: false, itemId: null, photoIdx: 0, accTab: 'rent', roomTab: 'ar', arType: null, q: '', sort: 'near', splitCart: false, draft: null, modelBusy: null };
 
-  // Data on the TroShare server: every student's listings and your favorites.
-  const server = { listings: [], favorites: [], loaded: false, loading: false, error: null, at: 0 };
+  // Data on the TroShare server: every student's listings, your favorites, and your chats with other
+  // students (msgs holds the loaded messages of each chat, by chat id).
+  const server = { listings: [], favorites: [], convs: [], msgs: {}, loaded: false, loading: false, error: null, at: 0 };
   const MAX_LISTING_PHOTOS = 4;
 
   /* ---------- helpers ---------- */
@@ -90,9 +93,10 @@
     if (!AUTH.signedIn() || server.loading) return;
     server.loading = true; server.error = null;
     try {
-      const [l, me] = await Promise.all([AUTH.call('/listings'), AUTH.refresh()]);
+      const [l, me, c] = await Promise.all([AUTH.call('/listings'), AUTH.refresh(), AUTH.call('/conversations')]);
       server.listings = l.listings.map(fromServer);
       server.favorites = (me && me.favorites) || [];
+      server.convs = c.conversations;
       server.loaded = true; server.at = Date.now();
     } catch (err) {
       server.error = err.message;
@@ -108,6 +112,12 @@
     return server.listings.find((x) => x.id === id) || D.listings.find((x) => x.id === id) || null;
   }
   const myListings = () => server.listings.filter((l) => l.owner === 'me');
+  function activeRentalFor(listingId) {
+    return S.rentals.find((r) => r.listingId === listingId && r.status !== 'Returned');
+  }
+  function unreadCount() {
+    return S.threads.reduce((n, t) => n + (t.unread || 0), 0) + server.convs.reduce((n, c) => n + (c.unread || 0), 0);
+  }
 
   function toast(msg) {
     toastEl.textContent = msg;
@@ -161,12 +171,13 @@
   function renderTabbar(route) {
     const tabs = [
       ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'Room Preview'], ['sell', '#/sell', I.plus, 'List'],
-      ['account', '#/account', I.user, 'Account']
+      ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
-    const active = { browse: 'home', item: 'home', fit: 'room', ar: 'room' }[route] || route;
+    const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
+    const n = unreadCount();
     const prev = tabbar.querySelector('a.on')?.getAttribute('href');
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
-      `<a href="${href}" class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''}>${icon}${label}</a>`
+      `<a href="${href}" class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''}>${icon}${label}${id === 'inbox' && n ? `<span class="dot" aria-label="${n} unread">${n}</span>` : ''}</a>`
     ).join('');
     const now = tabbar.querySelector('a.on');
     if (now && now.getAttribute('href') !== prev) now.classList.add('pop');
@@ -191,6 +202,8 @@
     const title = cur ? 'At ' + cur.name : 'Browse listings';
     const n = cur ? count(cur.id) : 0;
     const pill = cur ? (cur.home ? `${n} listings in your building` : `${n} listings at ${cur.name} · ${cur.walk}`) : 'Tap a hall to see what Trojans there are renting out';
+    const next = S.rentals.find((r) => r.status === 'Scheduled');
+    const nl = next && findListing(next.listingId);
     const status = server.error
       ? `<div class="callout" role="alert">${I.shield}<span>Couldn't load students' listings: ${esc(server.error)} <button type="button" class="link" data-action="retry-load">Try again</button></span></div>`
       : (!server.loaded ? '<span class="meta">Loading listings from other students…</span>' : '');
@@ -205,6 +218,13 @@
         <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
       ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : `<p class="empty">${q ? 'No listings match. Try another search.' : 'Nothing here yet. Try another hall on the map.'}</p>`}
     </section>
+    ${nl ? `<section class="section">
+      <div class="section-head"><h2>Next handoff</h2><a class="link" href="#/chat/${next.thread}">Chat →</a></div>
+      <a class="card pad row" href="#/chat/${next.thread}" style="text-decoration:none;color:inherit">
+        <span class="thumb"><img src="${esc(imgOf(nl))}" alt=""></span>
+        <span class="grow"><span class="t-serif">${esc(nameOf(nl))}</span><span class="meta">From ${esc(nl.seller)} · ${next.handoff === 'drop' ? 'Delivered' : 'Pickup'}</span><span class="meta">${esc(next.when)} · ${esc(next.where)}</span></span>
+        <span class="badge">${esc(next.status)}</span>
+      </a></section>` : ''}
     <div class="map">
       <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
       ${D.halls.map((h) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${esc(h.label)}</button>`).join('')}
@@ -221,35 +241,21 @@
     const l = findListing(id);
     if (!l) return `${topbar('Listing', '#/home')}<p class="empty">${server.loaded ? 'This listing is gone.' : 'Loading…'}</p>`;
     if (ui.itemId !== id) {
-      ui.itemId = id; ui.photoIdx = 0;
+      ui.itemId = id; ui.photoIdx = 0; ui.plan = 'sem'; ui.split = false;
+      ui.hand = l.handoff === 'pickup' ? 'pick' : 'drop';
       S.viewed = [id].concat(S.viewed.filter((v) => v !== id)).slice(0, 8); save();
     }
     const h = hallById(l.hall);
     const mine = l.owner === 'me';
+    const renting = activeRentalFor(id);
     const fav = server.favorites.includes(id);
+    const canDrop = l.handoff !== 'pickup', canPick = l.handoff !== 'drop';
+    const amt = ui.plan === 'sem' ? l.sem : l.year1;
+    const pay = ui.split ? amt / 2 : amt;
     const photos = l.photos && l.photos.length ? l.photos : [imgOf(l)];
     const shown = photos[Math.min(ui.photoIdx, photos.length - 1)];
-    const handoffs = [
-      l.handoff !== 'pickup' ? (mine ? 'You deliver to their hall lobby' : 'Delivered to your hall lobby') : '',
-      l.handoff !== 'drop' ? (mine ? 'They pick up at ' : 'Pickup at ') + D.pickupSpots[l.hall] : ''
-    ].filter(Boolean);
-    let note;
-    if (mine) {
-      note = `<div class="callout">${I.shield}<span>${l.status === 'paused' ? '<b>Hidden.</b> Other students can’t see this listing until you show it again.' : 'This is your listing. Every signed-in USC student can see it.'}</span></div>
-      <div class="row" style="gap:8px">
-        ${l.status === 'paused'
-          ? `<button type="button" class="btn btn-cardinal btn-small" style="flex:1" data-action="resume" data-id="${esc(id)}">Show it again</button>`
-          : `<button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="pause" data-id="${esc(id)}">Hide for now</button>`}
-        <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="delete-listing" data-id="${esc(id)}">Delete</button>
-      </div>
-      ${l.photo && !(l.model && l.model.fromPhoto) ? `<button type="button" class="btn btn-gold" data-action="build-model" data-id="${esc(id)}" ${ui.modelBusy === id ? 'disabled' : ''}>${ui.modelBusy === id ? 'Building a 3D model from your photo…' : 'Build AR model from this photo'}</button>` : ''}`;
-    } else if (l.sample) {
-      note = `<div class="callout">${I.shield}<span><b>Sample listing.</b> It shows how TroShare works; ${esc(l.seller)} isn't a real student. Real listings from USC students appear first on Home.</span></div>`;
-    } else {
-      note = `<div class="callout">${I.shield}<span>Renting through TroShare opens soon. Tap the heart to save it; you'll find it under Favorites in My Account.</span></div>`;
-    }
     return `${topbar(nameOf(l), '#/home')}
-    <div class="photo"><img src="${esc(shown)}" alt="${esc(nameOf(l))}${l.photo ? ", the seller's actual item" : ''}"><span class="badge">${esc(l.condition)}</span>
+    <div class="photo"><img src="${esc(shown)}" alt="${esc(nameOf(l))}, the seller's actual item"><span class="badge">${esc(l.condition)}</span>
       ${modelFiles(l) ? arButton(l, 'AR Preview', 'fit-btn') : ''}
       ${mine ? '' : `<button type="button" class="icon-btn" data-action="fav" data-id="${esc(id)}" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites" style="position:absolute;top:8px;left:8px;color:var(--cardinal)">${I.heart(fav)}</button>`}</div>
     ${photos.length > 1 ? `<div class="hscroll" style="padding:10px 16px 0">${photos.map((src, i) => `<button type="button" class="thumb photo-pick ${src === shown ? 'on' : ''}" data-action="photo-idx" data-id="${i}" aria-label="Photo ${i + 1}" aria-pressed="${src === shown}"><img src="${esc(src)}" alt=""></button>`).join('')}</div>` : ''}
@@ -257,18 +263,63 @@
       <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2><p class="sub" style="margin:4px 0 0">${esc(typeOf(l).blurb)}</p></div>
       <div class="card pad row">
         <span class="${avClass(l.seller)}">${esc(initial(l.seller))}</span>
-        <span class="grow"><span class="row" style="gap:6px;font-weight:700">${esc(l.seller)}${mine ? ' (you)' : ''} ${l.sample ? '' : I.verified}</span>
-          <span class="meta">${esc(l.year)}${l.sample ? '' : ' · Verified USC student'} · ${stars(l)}${l.rentals ? ' · ' + l.rentals + ' rentals' : ''}</span>
+        <span class="grow"><span class="row" style="gap:6px;font-weight:700">${esc(l.seller)}${mine ? ' (you)' : ''} ${I.verified}</span>
+          <span class="meta">${esc(l.year)} · Verified USC student · ${stars(l)}${l.rentals ? ' · ' + l.rentals + ' rentals' : ''}</span>
           <span class="where">${I.pin}${esc(h.name)} · ${esc(h.walk)}</span></span>
+        ${mine ? '' : `<button type="button" class="btn btn-outline btn-small" data-action="message" data-id="${esc(id)}">Message</button>`}
       </div>
-      <div class="card pad stack">
-        <div class="row" style="justify-content:space-between"><span class="label">Semester</span><b style="color:var(--cardinal)">${money(l.sem)}</b></div>
-        <div class="row" style="justify-content:space-between"><span class="label">Full year</span><span><b style="color:var(--cardinal)">${money(l.year1)}</b>${l.sem * 2 > l.year1 ? ` <span class="meta">(save ${money(l.sem * 2 - l.year1)})</span>` : ''}</span></div>
-        <div class="row" style="justify-content:space-between;align-items:flex-start"><span class="label">Handoff</span><span class="meta" style="text-align:right">${handoffs.map(esc).join('<br>')}</span></div>
-        ${l.openToSell ? '<span class="meta">Also open to selling it.</span>' : ''}
+      ${mine ? `<div class="callout">${I.shield}<span>${l.status === 'paused' ? '<b>Hidden.</b> Other students can’t see this listing until you show it again.' : 'This is your listing. It\'s visible to verified USC students. Manage it from <a href="#/account">My Account</a>.'}</span></div>
+      <div class="row" style="gap:8px">
+        ${l.status === 'paused'
+          ? `<button type="button" class="btn btn-cardinal btn-small" style="flex:1" data-action="resume" data-id="${esc(id)}">Show it again</button>`
+          : `<button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="pause" data-id="${esc(id)}">Hide for now</button>`}
+        <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="delete-listing" data-id="${esc(id)}">Delete</button>
       </div>
-      ${note}
-    </section>`;
+      ${l.photo && !(l.model && l.model.fromPhoto) ? `<button type="button" class="btn btn-gold" data-action="build-model" data-id="${esc(id)}" ${ui.modelBusy === id ? 'disabled' : ''}>${ui.modelBusy === id ? 'Building a 3D model from your photo…' : 'Build AR model from this photo'}</button>` : ''}` : `      <span class="label">Rental length</span>
+      <div class="opts" role="radiogroup" aria-label="Rental length">
+        <button type="button" role="radio" class="opt ${ui.plan === 'sem' ? 'on' : ''}" aria-checked="${ui.plan === 'sem'}" data-action="plan" data-id="sem"><span><span class="t">Semester · <span style="color:var(--cardinal)">${money(l.sem)}</span></span><span class="n">Move-in to move-out</span></span></button>
+        <button type="button" role="radio" class="opt ${ui.plan === 'yr' ? 'on' : ''}" aria-checked="${ui.plan === 'yr'}" data-action="plan" data-id="yr"><span><span class="t">Full year · <span style="color:var(--cardinal)">${money(l.year1)}</span></span><span class="n">Fall + spring · save ${money(l.sem * 2 - l.year1)}</span></span></button>
+      </div>
+      <span class="label">Handoff</span>
+      <div class="opts" role="radiogroup" aria-label="Handoff">
+        <button type="button" role="radio" class="opt ${ui.hand === 'drop' ? 'on' : ''}" aria-checked="${ui.hand === 'drop'}" data-action="hand" data-id="drop" ${canDrop ? '' : 'disabled'}>${I.truck}<span><span class="t">Delivered</span><span class="n">${canDrop ? 'To your hall lobby' : 'Not offered'}</span></span></button>
+        <button type="button" role="radio" class="opt ${ui.hand === 'pick' ? 'on' : ''}" aria-checked="${ui.hand === 'pick'}" data-action="hand" data-id="pick" ${canPick ? '' : 'disabled'}>${I.pin}<span><span class="t">Pickup</span><span class="n">${canPick ? esc(D.pickupSpots[l.hall]) : 'Not offered'}</span></span></button>
+      </div>
+      <label class="switch-row"><span><span style="font-weight:600;display:block">Split with my roommate</span><span class="meta">They get an invite to pay half</span></span><input type="checkbox" data-action="split" ${ui.split ? 'checked' : ''}></label>`}
+    </section>
+    ${mine ? '' : `<div class="paybar">
+      <div class="row"><div style="display:flex;flex-direction:column"><span class="big-price">${money(pay)}</span><span class="meta">${ui.split ? 'your half, ' : ''}${ui.plan === 'sem' ? 'per semester' : 'per year'}</span></div>
+      ${renting ? `<a class="btn btn-outline" href="#/chat/${renting.thread}" style="flex:1">You're renting this</a>` : `<button type="button" class="btn btn-cardinal" style="flex:1" data-action="rent" data-id="${esc(id)}">Rent</button>`}</div>
+      <span class="note">Pick a time with ${esc(l.seller.split(' ')[0])} in chat. Payment is held until you get it.</span>
+    </div>`}`;
+  }
+
+  function checkoutScreen() {
+    const rows = S.cart.map((c) => ({ c, l: findListing(c.listingId) })).filter((x) => x.l);
+    if (!rows.length) {
+      return `${topbar('Checkout', '#/home')}<div class="empty"><p>Nothing to check out yet.</p><a class="btn btn-cardinal" href="#/browse" style="max-width:280px;margin:0 auto">Browse listings</a></div>`;
+    }
+    const total = rows.reduce((n, { c, l }) => n + (c.plan === 'sem' ? l.sem : l.year1), 0);
+    const pay = ui.splitCart ? total / 2 : total;
+    return `${topbar('Checkout', '#/home')}
+    <section class="section">
+      ${rows.map(({ c, l }) => {
+        const amt = c.plan === 'sem' ? l.sem : l.year1;
+        return `<div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+          <div class="row"><span class="${avClass(l.seller)} sm" style="width:32px;height:32px">${esc(initial(l.seller))}</span><span class="grow"><span class="row" style="gap:6px;font-weight:700">From ${esc(l.seller)} · ${esc(l.year)} ${I.verified}</span></span><span class="meta">${stars(l)}</span></div>
+          <div class="row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${c.plan === 'sem' ? '1 Semester' : 'Full year'}</span></span><span style="font-weight:700">${money(amt)}</span></div>
+          <div class="row" style="justify-content:space-between"><span class="meta"><b>${c.handoff === 'drop' ? 'Delivered' : 'Pickup'}</b> · ${c.handoff === 'drop' ? esc(myLobby()) : esc(D.pickupSpots[l.hall])}</span><button type="button" class="link" data-action="remove" data-id="${l.id}" style="font-size:13px">Remove</button></div>
+        </div>`;
+      }).join('')}
+      <div class="card pad" style="display:flex;flex-direction:column;gap:8px">
+        <label class="switch-row"><span><span style="font-weight:600;display:block">Split with my roommate</span><span class="meta">Invite sent to their USC email</span></span><input type="checkbox" data-action="split-cart" ${ui.splitCart ? 'checked' : ''}></label>
+        <div class="callout">${I.shield}<span>Sellers are paid only after you tap <b>“Got it”</b> at handoff. Snap a condition photo then, and again when you return it.</span></div>
+      </div>
+    </section>
+    <div class="paybar">
+      <div class="row" style="justify-content:space-between"><span style="font-weight:600">${ui.splitCart ? 'You pay (half)' : 'Total'}</span><span class="big-price">${money(pay)}</span></div>
+      <button type="button" class="btn btn-cardinal" data-action="place">Rent ${rows.length} item${rows.length > 1 ? 's' : ''}</button>
+    </div>`;
   }
 
   function sellScreen() {
@@ -306,8 +357,178 @@
     return `Similar ${D.types[type].name.toLowerCase()}s on TroShare rent for $${Math.min(...ps)}–$${Math.max(...ps)} a semester.`;
   }
 
+  function inboxScreen() {
+    const real = server.convs.map((c) => ({ id: c.id, with: c.with.name, unread: c.unread, role: c.role === 'selling' ? 'selling' : 'renting', last: c.last ? (c.last.mine && c.last.kind === 'text' ? 'You: ' : '') + c.last.text : 'No messages yet', at: c.lastAt }));
+    const local = S.threads.map((t) => {
+      const last = t.msgs[t.msgs.length - 1];
+      return { id: t.id, with: t.with, unread: t.unread || 0, role: t.role, last: last ? (last.from === 'me' ? 'You: ' : '') + last.text : '', at: 0 };
+    });
+    const ts = real.concat(local).sort((a, b) => (b.unread > 0) - (a.unread > 0) || b.at - a.at);
+    return `${topbar('Inbox')}
+    <section class="section">
+      ${ts.length ? `<div class="card" style="padding:0 14px">${ts.map((t) => `<a class="list-row" href="#/chat/${t.id}">
+          <span class="${avClass(t.with)}">${esc(initial(t.with))}</span>
+          <span class="grow"><span style="font-weight:700">${esc(t.with)}</span><span class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.last)}</span></span>
+          ${t.unread ? `<span class="dot">${t.unread}</span>` : `<span class="badge ${t.role === 'selling' ? 'red' : ''}">${t.role === 'selling' ? 'Your listing' : 'Renting'}</span>`}
+        </a>`).join('')}</div>` : '<p class="empty">No messages yet. Message a seller from any listing and the chat shows up here.</p>'}
+    </section>`;
+  }
+
+  function chatScreen(id) {
+    if (/^c[0-9a-f]{16}$/.test(id || '')) return realChatScreen(id);
+    const t = S.threads.find((x) => x.id === id);
+    if (!t) return `${topbar('Chat', '#/inbox')}<p class="empty">Conversation not found.</p>`;
+    if (t.unread) { t.unread = 0; save(); }
+    const r = t.rentalId && S.rentals.find((x) => x.id === t.rentalId);
+    const l = r ? findListing(r.listingId) : (t.listingId ? findListing(t.listingId) : null);
+    const m = t.myListingId && S.myListings.find((x) => x.id === t.myListingId);
+    let card = '';
+    if (r && l) {
+      card = `<div class="card pad" style="margin:12px 16px 0;display:flex;flex-direction:column;gap:10px">
+        <div class="row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))} · ${r.plan === 'sem' ? 'Semester' : 'Full year'}</span><span class="meta">${esc(r.when)} · ${esc(r.where)}</span></span><span class="badge ${r.status === 'Returned' ? 'gray' : ''}">${esc(r.status)}</span></div>
+        ${r.status === 'Scheduled' ? `<button type="button" class="btn btn-cardinal" data-action="confirm" data-id="${r.id}">Got it — confirm handoff</button>` : ''}
+        ${r.status === 'Active' ? `<div class="callout">${I.check}<span><b>Handoff confirmed.</b> ${esc(t.with.split(' ')[0])} has been paid. Return it by move-out in May.</span></div>` : ''}
+      </div>`;
+    } else if (l) {
+      card = `<a class="card pad row" href="#/item/${l.id}" style="margin:12px 16px 0;text-decoration:none;color:inherit"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)} per semester · ask ${esc(t.with.split(' ')[0])} anything</span></span></a>`;
+    } else if (m) {
+      card = `<div class="card pad row" style="margin:12px 16px 0"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">Your listing · ${money(m.sem)} · rented to ${esc(t.with)}</span></span><span class="badge red">${esc(m.status)}</span></div>`;
+    }
+    return `${topbar(t.with, '#/inbox')}
+    <div class="row" style="padding:10px 16px 0;gap:8px"><span class="${avClass(t.with)} sm">${esc(initial(t.with))}</span><span class="meta">${esc(t.year)} · Verified USC student</span>${I.verified}</div>
+    ${card}
+    <div class="thread" id="thread">
+      ${t.msgs.map((msg) => msg.from === 'sys' ? `<span class="sys">${esc(msg.text)}</span>` : `<div class="bubble ${msg.from === 'me' ? 'me' : ''}">${esc(msg.text)}</div>`).join('')}
+    </div>
+    <form class="composer" data-form="chat" data-id="${t.id}"><label class="sr-only" for="msg">Message ${esc(t.with)}</label><input id="msg" name="msg" placeholder="Message ${esc(t.with.split(' ')[0])}" autocomplete="off" enterkeyhint="send"><button class="send" type="submit" aria-label="Send">${I.send}</button></form>`;
+  }
+
+  // A chat with a real student. Messages come from the server and refresh every few seconds while it's open.
+  function realChatScreen(id) {
+    const c = server.convs.find((x) => x.id === id);
+    const msgs = server.msgs[id];
+    if (msgs === undefined) fetchMessages(id).then(() => { if (parse().id === id) refreshChat(true); });
+    if (!c) return `${topbar('Chat', '#/inbox')}<p class="empty">${msgs === undefined ? 'Loading…' : 'Conversation not found.'}</p>`;
+    const first = c.with.name.split(' ')[0];
+    const r = S.rentals.find((x) => x.thread === id);
+    const l = findListing(c.listing.id);
+    const thumb = (l && imgOf(l)) || c.listing.photo || D.types[c.listing.type].img;
+    let card;
+    if (r) {
+      card = `<div class="card pad" style="margin:12px 16px 0;display:flex;flex-direction:column;gap:10px">
+        <div class="row"><span class="thumb"><img src="${esc(thumb)}" alt=""></span><span class="grow"><span class="t-serif">${esc(c.listing.title)} · ${r.plan === 'sem' ? 'Semester' : 'Full year'}</span><span class="meta">${esc(r.when)} · ${esc(r.where)}</span></span><span class="badge ${r.status === 'Returned' ? 'gray' : ''}">${esc(r.status)}</span></div>
+        ${r.status === 'Scheduled' ? `<button type="button" class="btn btn-cardinal" data-action="confirm" data-id="${r.id}">Got it — confirm handoff</button>` : ''}
+        ${r.status === 'Active' ? `<div class="callout">${I.check}<span><b>Handoff confirmed.</b> ${esc(first)} has been paid. Return it by move-out in May.</span></div>` : ''}
+      </div>`;
+    } else {
+      card = `<${l ? `a href="#/item/${esc(l.id)}"` : 'div'} class="card pad row" style="margin:12px 16px 0;text-decoration:none;color:inherit"><span class="thumb"><img src="${esc(thumb)}" alt=""></span><span class="grow"><span class="t-serif">${esc(c.listing.title)}</span><span class="meta">${c.role === 'selling' ? 'Your listing · ' + money(c.listing.sem) + ' per semester' : money(c.listing.sem) + ' per semester · ask ' + esc(first) + ' anything'}</span></span>${c.role === 'selling' ? '<span class="badge red">Your listing</span>' : ''}</${l ? 'a' : 'div'}>`;
+    }
+    return `${topbar(c.with.name, '#/inbox')}
+    <div class="row" style="padding:10px 16px 0;gap:8px"><span class="${avClass(c.with.name)} sm">${esc(initial(c.with.name))}</span><span class="meta">${esc(c.with.year)} · Verified USC student${c.with.hall ? ' · ' + esc(hallById(c.with.hall) ? hallById(c.with.hall).name : '') : ''}</span>${I.verified}</div>
+    ${card}
+    <div class="thread" id="thread">
+      ${msgs === undefined ? '<span class="sys">Loading messages…</span>' : ''}
+      ${msgs && !msgs.length ? `<span class="sys">Say hi to ${esc(first)}. They'll see your message in their Inbox.</span>` : ''}
+      ${(msgs || []).map((m) => m.kind === 'sys' ? `<span class="sys">${esc(m.text)}</span>` : `<div class="bubble ${m.mine ? 'me' : ''}" ${m.pending ? 'style="opacity:.6"' : ''}>${esc(m.text)}</div>`).join('')}
+    </div>
+    <form class="composer" data-form="chat" data-id="${id}"><label class="sr-only" for="msg">Message ${esc(c.with.name)}</label><input id="msg" name="msg" placeholder="Message ${esc(first)}" autocomplete="off" enterkeyhint="send" maxlength="1000"><button class="send" type="submit" aria-label="Send">${I.send}</button></form>`;
+  }
+
+  /* ---------- real chats: loading, sending, refreshing ---------- */
+  function putConv(c) {
+    const i = server.convs.findIndex((x) => x.id === c.id);
+    if (i >= 0) server.convs[i] = { ...server.convs[i], ...c }; else server.convs.unshift(c);
+    return c;
+  }
+  // Adds messages to a chat that is already loaded (never creates a partial history), oldest first.
+  function mergeMessages(id, list) {
+    const cur = server.msgs[id];
+    if (!cur) return;
+    const byId = new Map(cur.map((m) => [m.id, m]));
+    list.forEach((m) => byId.set(m.id, m));
+    server.msgs[id] = [...byId.values()].sort((a, b) => (a.pending ? 1 : 0) - (b.pending ? 1 : 0) || (a.pending ? 0 : a.id - b.id));
+  }
+  const loadingChat = {};
+  // Gets the messages you haven't loaded yet (all of them the first time). Resolves to how many arrived.
+  function fetchMessages(id) {
+    if (loadingChat[id]) return loadingChat[id];
+    const have = (server.msgs[id] || []).filter((m) => !m.pending);
+    const after = have.length ? have[have.length - 1].id : 0;
+    loadingChat[id] = AUTH.call(`/conversations/${id}/messages?after=${after}`)
+      .then((r) => {
+        putConv(r.conversation);
+        if (!server.msgs[id]) server.msgs[id] = [];
+        const before = server.msgs[id].length;
+        mergeMessages(id, r.messages);
+        return server.msgs[id].length - before;
+      })
+      .catch((err) => {
+        if (!server.msgs[id]) server.msgs[id] = [];
+        if (err.status !== 404) toast(err.message);
+        return 0;
+      })
+      .finally(() => { delete loadingChat[id]; });
+    return loadingChat[id];
+  }
+  function sendReal(id, body) {
+    const temp = 'p' + Date.now();
+    if (body.text && !body.event) mergeMessages(id, [{ id: temp, mine: true, kind: 'text', text: body.text, pending: true }]);
+    const dropTemp = () => { if (server.msgs[id]) server.msgs[id] = server.msgs[id].filter((m) => m.id !== temp); };
+    return AUTH.call(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify(body) })
+      .then((r) => {
+        dropTemp();
+        mergeMessages(id, r.messages);
+        const m = r.messages[r.messages.length - 1];
+        const c = server.convs.find((x) => x.id === id);
+        if (c) { c.last = { text: m.text, mine: true, kind: m.kind }; c.lastAt = m.at; }
+        return r.messages;
+      })
+      .catch((err) => { dropTemp(); throw err; });
+  }
+  // Opens (or reopens) the chat with the owner of a real listing.
+  function openRealChat(l) {
+    return AUTH.call('/conversations', { method: 'POST', body: JSON.stringify({ listingId: l.id }) }).then((r) => putConv(r.conversation));
+  }
+  function scrollThreadEnd(smooth) {
+    const th = document.getElementById('thread');
+    if (th && th.lastElementChild) th.lastElementChild.scrollIntoView({ block: 'end', behavior: smooth ? 'smooth' : 'auto' });
+  }
+  // Redraws an open chat without losing what you're typing; follows new messages if you're at the bottom.
+  function refreshChat(toEnd) {
+    const input = app.querySelector('#msg');
+    const draft = input ? input.value : '';
+    const focused = input && document.activeElement === input;
+    const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
+    rerender();
+    const n = app.querySelector('#msg');
+    if (n) { n.value = draft; if (focused) n.focus({ preventScroll: true }); }
+    if (toEnd || atBottom) scrollThreadEnd(!toEnd);
+  }
+  // Inbox list and unread badge.
+  function refreshConvs() {
+    if (!AUTH.signedIn() || AUTH.needsSetup()) return Promise.resolve();
+    return AUTH.call('/conversations').then((r) => {
+      server.convs = r.conversations;
+      const { route } = parse();
+      if (route === 'inbox') rerender(); else renderTabbar(route);
+    }).catch(() => { /* try again next time */ });
+  }
+  setInterval(() => {
+    if (document.hidden || !AUTH.signedIn()) return;
+    const { route, id } = parse();
+    if (route === 'chat' && /^c[0-9a-f]{16}$/.test(id || '') && server.msgs[id]) fetchMessages(id).then((n) => { if (n && parse().id === id) refreshChat(false); });
+  }, 4000);
+  setInterval(() => { if (!document.hidden) refreshConvs(); }, 20000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshConvs(); });
+
   function accountScreen() {
-    const mineRows = myListings().map((m) => `<a class="list-row" href="#/item/${esc(m.id)}" style="text-decoration:none;color:inherit"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">${money(m.sem)} per semester · ${esc(m.condition)}</span><span class="meta">${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span><span class="badge ${m.status === 'paused' ? 'gray' : ''}">${m.status === 'paused' ? 'Hidden' : 'Listed'}</span></a>`).join('');
+    const statusBadge = (s) => s === 'Returned' ? 'gray' : (s === 'Rented' ? 'red' : '');
+    const renting = S.rentals.map((r) => {
+      const l = findListing(r.listingId); if (!l) return '';
+      return `<a class="list-row" href="${r.thread ? '#/chat/' + r.thread : '#/item/' + l.id}"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">From ${esc(l.seller)} · ${r.plan === 'sem' ? '1 Semester' : 'Full year'} · ${money(r.price)}${r.split ? ' (split)' : ''}</span><span class="meta">${esc(r.when)}</span></span><span class="badge ${statusBadge(r.status)}">${esc(r.status)}</span></a>`;
+    }).join('');
+    const mine = myListings();
+    const mineRows = mine.map((m) => `<a class="list-row" href="#/item/${esc(m.id)}" style="text-decoration:none;color:inherit"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">Listed · ${money(m.sem)} per semester</span><span class="meta">${esc(m.condition)} · ${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span><span class="badge ${m.status === 'paused' ? 'gray' : ''}">${m.status === 'paused' ? 'Hidden' : 'Available'}</span></a>`).join('');
     const viewed = S.viewed.map(findListing).filter(Boolean);
     const favs = server.favorites.map(findListing).filter(Boolean);
     const avatar = D.me.picture
@@ -327,18 +548,21 @@
         <p class="meta" style="margin:0;font-size:13px">No reviews yet. After each rental, the other student rates how it went, and your rating shows up here for sellers to see.</p>
       </div>
       <div class="card pad" style="display:flex;flex-direction:column;gap:10px">
-        <h2 class="h2" style="font-size:20px">My listings</h2>
-        <div>${mineRows || `<p class="empty">${server.loaded ? 'You haven’t listed anything yet.' : 'Loading…'}</p>`}</div>
-        <a class="btn-dashed" href="#/sell">+ List an item</a>
+        <h2 class="h2" style="font-size:20px">My rentals</h2>
+        <div class="tabs2" role="tablist"><button type="button" role="tab" class="${ui.accTab === 'rent' ? 'on' : ''}" aria-selected="${ui.accTab === 'rent'}" data-action="acc-tab" data-id="rent">Renting (${S.rentals.length})</button><button type="button" role="tab" class="${ui.accTab === 'list' ? 'on' : ''}" aria-selected="${ui.accTab === 'list'}" data-action="acc-tab" data-id="list">My listings (${mine.length})</button></div>
+        <div>${ui.accTab === 'rent' ? (renting || '<p class="empty">No rentals yet.</p>') : (mineRows || `<p class="empty">${server.loaded ? 'You haven’t listed anything yet.' : 'Loading…'}</p>`)}</div>
+        ${ui.accTab === 'list' ? '<a class="btn-dashed" href="#/sell">+ List an item</a>' : ''}
       </div>
       ${viewed.length ? `<div class="card pad" style="display:flex;flex-direction:column;gap:10px"><h2 class="h2" style="font-size:20px">Recently viewed</h2><div class="hscroll">${viewed.map((l) => `<a class="mini" href="#/item/${l.id}"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span style="font-size:12px;font-weight:700">${esc(nameOf(l))}</span><span style="font-size:12px;font-weight:700;color:var(--cardinal)">${money(l.sem)}/sem</span></a>`).join('')}</div></div>` : ''}
       <div class="card pad" style="display:flex;flex-direction:column;gap:4px"><h2 class="h2" style="font-size:20px">Favorites</h2>
         ${favs.length ? favs.map((l) => `<div class="list-row"><a class="row grow" href="#/item/${l.id}" style="flex-direction:row;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta"><b style="color:var(--cardinal)">${money(l.sem)}/sem</b> · ${esc(l.seller)} · ${esc(hallById(l.hall).name)}</span></span></a><button type="button" class="icon-btn" style="color:var(--cardinal)" data-action="fav" data-id="${l.id}" aria-label="Remove ${esc(nameOf(l))} from favorites">${I.heart(true)}</button></div>`).join('') : '<p class="empty">Tap the heart on a listing to save it.</p>'}
       </div>
-      <div class="card pad stack"><h2 class="h2" style="font-size:20px">Renting &amp; payments</h2>
-        <p class="meta" style="margin:0;font-size:13px">Renting, messaging and payments through TroShare are coming soon. Your listings and favorites are saved to your account and show up on any device you log in from.</p>
-      </div>
       <button type="button" class="btn btn-cardinal" data-action="logout">Log out</button>
+      <div class="card pad stack">
+        <span class="label">Demo tools</span>
+        <span class="meta">Fill your account with sample rentals and chats with sample sellers, or clear what you've done on this device. Your listings, favorites and chats with real students aren't affected.</span>
+        <div class="row" style="gap:8px"><button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="sample-data">Load sample activity</button><button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="reset">Clear my activity</button></div>
+      </div>
     </section>
     <p class="footer">A peer-to-peer marketplace for USC students.<br>Rent what you need, share what you don't — Trojan to Trojan.</p>`;
   }
@@ -530,7 +754,7 @@
           <p class="sub" style="margin:0">Add a photo of the spot where it would go, or try it in a sample dorm room. Then move and resize it on top.</p></div>
         ${roomPhotoStrip(false)}`}
       <div class="card pad row"><span class="thumb"><img src="${esc(src)}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
-        ${l.owner === 'me' ? '' : `<a class="btn btn-cardinal btn-small" href="#/item/${encodeURIComponent(id)}">View</a>`}</div>
+        ${l.owner === 'me' ? '' : `<button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>
     </section>`;
   }
 
@@ -618,7 +842,7 @@
       ${phone ? arButton(l, 'Open camera and place on the floor') : `<model-viewer class="ar-stage" id="ar-model" src="${esc(files.glb)}" ios-src="${esc(files.usdz)}" alt="${esc(nameOf(l))} in 3D, ${esc(files.size)}" camera-controls touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>`}
       <p class="meta">${esc(about)} ${phone ? 'The camera is your phone’s rear camera. Move slowly so it can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page in Safari on your iPhone, then tap AR Preview.'}</p>
       <div class="card pad row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
-        ${l.owner === 'me' ? '' : `<a class="btn btn-cardinal btn-small" href="#/item/${encodeURIComponent(id)}">View</a>`}</div>`;
+        ${l.owner === 'me' ? '' : `<a class="btn btn-outline btn-small" href="#/item/${encodeURIComponent(id)}">View</a><button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>`;
   }
 
   function resetFit(l, id) {
@@ -760,7 +984,10 @@
       // Browse now lives on Home; old #/browse links open Home at the list.
       case 'browse': ui.toList = true; html = homeScreen(); break;
       case 'item': html = itemScreen(id); break;
+      case 'checkout': html = checkoutScreen(); break;
       case 'sell': html = sellScreen(); break;
+      case 'inbox': html = inboxScreen(); break;
+      case 'chat': html = chatScreen(id); break;
       case 'account': html = accountScreen(); break;
       case 'room': html = roomScreen(); break;
       case 'fit': html = fitScreen(id); break;
@@ -772,7 +999,8 @@
     if (route === 'fit') setupFit();
     if (location.hash !== lastHash) {
       lastHash = location.hash;
-      window.scrollTo(0, 0);
+      if (route === 'chat') scrollThreadEnd();
+      else window.scrollTo(0, 0);
     }
     if (ui.toList && (route === 'home' || route === 'browse')) {
       ui.toList = false;
@@ -784,7 +1012,67 @@
   function rerender() { const y = window.scrollY; render(); window.scrollTo(0, y); }
 
   /* ---------- actions ---------- */
+  function ensureThread(name, year, extra) {
+    let t = S.threads.find((x) => x.with === name && (!extra.rentalId || x.rentalId === extra.rentalId || !x.rentalId));
+    if (!t) { t = { id: 't' + Date.now() + Math.floor(Math.random() * 1000), with: name, year, unread: 0, msgs: [], role: 'renting', ...extra }; S.threads.push(t); }
+    else Object.assign(t, extra);
+    return t;
+  }
+  const replies = ['Sounds good!', 'Perfect, see you then. Fight On!', "Got it. I'll message you when I'm close.", 'Works for me 👍', 'Thanks! Let me know if anything changes.'];
+  function autoReply(tid) {
+    setTimeout(() => {
+      const t = S.threads.find((x) => x.id === tid); if (!t) return;
+      t.msgs.push({ from: 'them', text: replies[Math.floor(Math.random() * replies.length)] });
+      const { route, id } = parse();
+      if (!(route === 'chat' && id === tid)) t.unread = (t.unread || 0) + 1;
+      save();
+      if (route === 'chat' && id === tid) { render(); const th = document.getElementById('thread'); th && th.lastElementChild && th.lastElementChild.scrollIntoView({ block: 'end', behavior: 'smooth' }); }
+      else renderTabbar(route);
+    }, 1400);
+  }
+
   // Saves a change to one of your listings on the server, then shows it.
+  // Checkout. Sample sellers answer automatically; a real seller gets the rental request in a real chat.
+  async function placeOrder(btn) {
+    btn.disabled = true;
+    const made = [];
+    try {
+      for (const c of S.cart.slice()) {
+        const l = findListing(c.listingId);
+        if (!l) continue;
+        const rid = 'r' + Date.now() + made.length;
+        const price = c.plan === 'sem' ? l.sem : l.year1;
+        const where = c.handoff === 'drop' ? myLobby() : D.pickupSpots[l.hall];
+        let thread;
+        if (l.sample) {
+          const t = ensureThread(l.seller, l.year, { rentalId: rid, role: 'renting', listingId: c.listingId });
+          t.msgs.push({ from: 'sys', text: 'You rented this · ' + (ui.splitCart ? 'split with roommate' : 'paid in full') });
+          t.msgs.push({ from: 'them', text: `Hi ${D.me.first || 'there'}, thanks for renting my ${nameOf(l).toLowerCase()}! ${c.handoff === 'drop' ? 'I can drop it off at your lobby — what time works?' : 'You can pick it up at ' + where + '. When works for you?'}` });
+          t.unread = (t.unread || 0) + 1;
+          thread = t.id;
+        } else {
+          const conv = await openRealChat(l);
+          const sellerFirst = l.seller.split(' ')[0];
+          await sendReal(conv.id, {
+            event: 'rent', plan: c.plan, handoff: c.handoff,
+            text: `Hi ${sellerFirst}! I'd like to rent your “${nameOf(l)}” for ${c.plan === 'sem' ? 'the semester' : 'the full year'}. ${c.handoff === 'drop' ? 'Could you drop it off at ' + where + '?' : "I'll pick it up at " + where + '.'} What time works for you?`
+          });
+          thread = conv.id;
+        }
+        S.rentals.unshift({ id: rid, listingId: l.id, plan: c.plan, price, handoff: c.handoff, split: ui.splitCart, status: 'Scheduled', when: 'Move-in day · time TBD', where, thread });
+        S.cart = S.cart.filter((x) => x !== c);
+        made.push(thread);
+        save();
+      }
+    } catch (err) {
+      btn.disabled = false;
+      toast(err.message);
+      if (!made.length) return;
+    }
+    toast(made.length > 1 ? `Rented ${made.length} items — sellers notified` : 'Rented! The seller has been notified');
+    location.hash = made.length === 1 ? '#/chat/' + made[0] : '#/inbox';
+  }
+
   function updateMine(id, patch, done) {
     AUTH.call('/listings/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(patch) })
       .then((r) => { putListing(r.listing); rerender(); toast(done); })
@@ -819,6 +1107,41 @@
         break;
       }
       case 'photo-idx': ui.photoIdx = Number(id); rerender(); break;
+      case 'plan': ui.plan = id; rerender(); break;
+      case 'hand': ui.hand = id; rerender(); break;
+      case 'message': {
+        const l = findListing(id);
+        if (!l) break;
+        if (l.sample) {
+          const t = ensureThread(l.seller, l.year, { listingId: id });
+          if (!t.msgs.length) t.msgs.push({ from: 'sys', text: 'You asked about ' + nameOf(l) });
+          save(); location.hash = '#/chat/' + t.id; break;
+        }
+        el.disabled = true;
+        openRealChat(l).then((c) => { location.hash = '#/chat/' + c.id; }).catch((err) => { el.disabled = false; toast(err.message); });
+        break;
+      }
+      case 'rent': {
+        const l = findListing(id);
+        S.cart = S.cart.filter((c) => c.listingId !== id);
+        S.cart.push({ listingId: id, plan: ui.plan, handoff: ui.hand });
+        ui.splitCart = ui.split;
+        save(); location.hash = '#/checkout'; toast(nameOf(l) + ' added'); break;
+      }
+      case 'remove': S.cart = S.cart.filter((c) => c.listingId !== id); save(); rerender(); break;
+      case 'place': placeOrder(el); break;
+      case 'confirm': {
+        const r = S.rentals.find((x) => x.id === id);
+        if (r) {
+          r.status = 'Active';
+          const t = S.threads.find((x) => x.id === r.thread);
+          if (t) t.msgs.push({ from: 'sys', text: 'Handoff confirmed · seller paid' });
+          else if (r.thread) sendReal(r.thread, { event: 'confirm' }).then(() => { if (parse().id === r.thread) refreshChat(true); }).catch((err) => toast(err.message));
+          save(); toast('Handoff confirmed'); rerender();
+        }
+        break;
+      }
+      case 'acc-tab': ui.accTab = id; rerender(); break;
       case 'pause': updateMine(id, { status: 'paused' }, 'Hidden from other students'); break;
       case 'resume': updateMine(id, { status: 'available' }, 'Other students can see it again'); break;
       case 'delete-listing':
@@ -838,6 +1161,14 @@
       case 'room-tab': ui.roomTab = id; rerender(); break;
       case 'ar-pick': ui.arType = id; rerender(); break;
       case 'residence': { const f = app.querySelector('[data-form=profile]'); if (f) f.scrollIntoView({ behavior: 'smooth' }); break; }
+      case 'sample-data':
+        if (window.confirm('Replace your rentals and sample-seller chats on this device with sample activity?')) {
+          S = D.sampleState(D.me.first, hallById(D.me.hall).name); save(); location.hash = '#/home'; render(); toast('Sample activity loaded');
+        }
+        break;
+      case 'reset':
+        if (window.confirm('Clear your rentals, cart and sample-seller chats on this device?')) { S = { ...D.emptyState(), hall: D.me.hall }; save(); location.hash = '#/home'; render(); toast('Activity cleared'); }
+        break;
       case 'logout':
         if (window.TS_INTRO) window.TS_INTRO.logout();
         break;
@@ -857,6 +1188,12 @@
       case 'fit-flip': fit.flip = !fit.flip; applyFit(); break;
       case 'fit-rotate': fit.rot += 15; applyFit(); break;
       case 'fit-reset': { const l = findListing(id); if (l) { resetFit(l, id); applyFit(); } break; }
+      case 'fit-rent': {
+        const l = findListing(id);
+        S.cart = S.cart.filter((c) => c.listingId !== id);
+        S.cart.push({ listingId: id, plan: 'sem', handoff: l.handoff === 'pickup' ? 'pick' : 'drop' });
+        save(); location.hash = '#/checkout'; toast(nameOf(l) + ' added'); break;
+      }
       case 'browse-type': ui.q = D.types[id].name; S.cat = 'all'; S.hall = null; save(); ui.toList = true; location.hash = '#/home'; break;
       case 'cond': ui.draft.condition = id; rerender(); break;
       case 'rm-photo': ui.draft.photos.splice(Number(id), 1); rerender(); break;
@@ -868,6 +1205,8 @@
     const el = e.target;
     const k = el.dataset.input;
     if (!k) return;
+    if (el.dataset.action === 'split') { ui.split = el.checked; rerender(); return; }
+    if (el.dataset.action === 'split-cart') { ui.splitCart = el.checked; rerender(); return; }
     if (k === 'sort') { ui.sort = el.value; rerender(); return; }
     if (k === 'room-photo') { addRoomFiles(el.files); return; }
     const d = ui.draft;
@@ -906,6 +1245,27 @@
       AUTH.saveProfile({ year, hall })
         .then(() => { applyUser(); S.hall = D.me.hall; save(); if (firstTime) location.hash = '#/home'; render(); toast(firstTime ? 'You are all set' : 'Profile saved'); })
         .catch((err) => { btn.disabled = false; toast(err.message); });
+      return;
+    }
+    if (f.dataset.form === 'chat') {
+      const input = f.querySelector('input');
+      const text = input.value.trim();
+      if (!text) return;
+      const tid = f.dataset.id;
+      if (/^c[0-9a-f]{16}$/.test(tid)) {
+        input.value = '';
+        sendReal(tid, { text })
+          .then(() => { if (parse().id === tid) refreshChat(true); })
+          .catch((err) => { toast(err.message); if (parse().id === tid) { refreshChat(true); const n = app.querySelector('#msg'); if (n && !n.value) n.value = text; } });
+        refreshChat(true);
+        return;
+      }
+      const t = S.threads.find((x) => x.id === tid);
+      t.msgs.push({ from: 'me', text });
+      save(); render();
+      scrollThreadEnd();
+      const n = app.querySelector('#msg'); n && n.focus();
+      autoReply(t.id);
       return;
     }
     if (f.dataset.form === 'sell') {
@@ -1012,10 +1372,11 @@
     // Coming back to Home or My Account after a minute picks up new listings from other students.
     const r = parse().route;
     if ((r === 'home' || r === 'account') && Date.now() - server.at > 60000) syncFromServer();
+    if (r === 'inbox') refreshConvs();
   });
   // Signing in or out switches whose data is shown.
   const switchUser = () => {
-    Object.assign(server, { listings: [], favorites: [], loaded: false, error: null, at: 0 });
+    Object.assign(server, { listings: [], favorites: [], convs: [], msgs: {}, loaded: false, error: null, at: 0 });
     applyUser(); S = load(); ui.draft = null; room.analysis = null; render();
     if (AUTH.signedIn()) syncFromServer();
   };
