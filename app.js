@@ -83,7 +83,7 @@
   /* ---------- shared pieces ---------- */
   function topbar(title, backHref) {
     if (!title) {
-      return `<header class="topbar"><span class="spacer44"></span><a class="wordmark" href="#/home">TROSHARE</a><a class="icon-btn" href="#/browse" aria-label="Search listings">${I.search}</a></header>`;
+      return `<header class="topbar"><span class="spacer44"></span><a class="wordmark" href="#/home">TROSHARE</a><button type="button" class="icon-btn" data-action="search" aria-label="Search listings">${I.search}</button></header>`;
     }
     return `<header class="topbar">${backHref ? `<a class="icon-btn" href="${backHref}" data-action="back" aria-label="Back">${I.back}</a>` : '<span class="spacer44"></span>'}<h1>${esc(title)}</h1><span class="spacer44"></span></header>`;
   }
@@ -104,10 +104,10 @@
 
   function renderTabbar(route) {
     const tabs = [
-      ['home', '#/home', I.home, 'Home'], ['browse', '#/browse', I.search, 'Browse'], ['sell', '#/sell', I.plus, 'List'],
+      ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'AI Room'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
-    const active = { item: 'browse', checkout: 'browse', chat: 'inbox', room: 'home', fit: 'browse' }[route] || route;
+    const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room' }[route] || route;
     const n = unreadCount();
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
       `<a href="${href}" class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''}>${icon}${label}${id === 'inbox' && n ? `<span class="dot" aria-label="${n} unread">${n}</span>` : ''}</a>`
@@ -119,13 +119,12 @@
     const all = market();
     const cur = S.hall ? hallById(S.hall) : null;
     const count = (id) => all.filter((l) => l.hall === id).length;
-    let items;
-    if (cur) items = all.filter((l) => l.hall === cur.id);
-    else if (S.cat === 'all') items = all.filter((l) => l.hall === D.me.hall);
-    else items = all.slice().sort((a, b) => hallById(a.hall).mins - hallById(b.hall).mins);
-    if (S.cat !== 'all') items = items.filter((l) => catOf(l) === S.cat);
-    const catLabel = D.categories.find((c) => c.id === S.cat).label;
-    const title = cur ? 'At ' + cur.name : (S.cat === 'all' ? 'Closest to Webb Tower' : catLabel + ' across campus');
+    // Browse lives on Home: the map's hall, the category chips and the search box all narrow one list.
+    const q = ui.q.trim().toLowerCase();
+    let items = all.filter((l) => (!cur || l.hall === cur.id) && (S.cat === 'all' || catOf(l) === S.cat));
+    if (q) items = items.filter((l) => (nameOf(l) + ' ' + l.seller + ' ' + hallById(l.hall).name).toLowerCase().includes(q));
+    items.sort(ui.sort === 'price' ? (a, b) => a.sem - b.sem : (a, b) => hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem);
+    const title = cur ? 'At ' + cur.name : 'Browse listings';
     const n = cur ? count(cur.id) : 0;
     const pill = cur ? (cur.home ? `${n} listings in your building` : `${n} listings at ${cur.name} · ${cur.walk}`) : 'Tap a hall to see what Trojans there are renting out';
     const next = S.rentals.find((r) => r.status === 'Scheduled');
@@ -145,13 +144,6 @@
       <button type="button" class="btn btn-gold" data-action="scroll-list">Browse listings</button>
       <a class="btn btn-outline-white" href="#/sell">List your stuff</a>
     </section>
-    <section class="section">
-      <a class="card pad row room-cta" href="#/room">
-        <span class="room-cta-ico">${I.sparkle}</span>
-        <span class="grow"><span class="t-serif" style="font-size:18px">Plan your room with AI</span><span class="meta">Snap your room. Claude suggests what to rent, and you can see how each item fits.</span></span>
-        <span aria-hidden="true" class="chev">›</span>
-      </a>
-    </section>
     ${nl ? `<section class="section">
       <div class="section-head"><h2>Next handoff</h2><a class="link" href="#/chat/${next.thread}">Chat →</a></div>
       <a class="card pad row" href="#/chat/${next.thread}" style="text-decoration:none;color:inherit">
@@ -160,26 +152,14 @@
         <span class="badge">${esc(next.status)}</span>
       </a></section>` : ''}
     <section class="section" id="listings">
-      <div class="section-head"><h2>${esc(title)}</h2><span class="sub">${items.length} items</span></div>
+      <div class="section-head"><h2>${esc(title)}</h2><span class="sub">${items.length} item${items.length === 1 ? '' : 's'}</span></div>
+      <label class="search"><span class="sr-only">Search listings</span>${I.search}<input type="search" placeholder="Lamps, fans, bean bags…" value="${esc(ui.q)}" data-input="q" autocomplete="off"></label>
       <div class="chips" role="group" aria-label="Category">${D.categories.map((c) => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-action="cat" data-id="${c.id}" aria-pressed="${S.cat === c.id}">${c.label}</button>`).join('')}</div>
-      ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : '<p class="empty">Nothing here yet. Try another hall on the map.</p>'}
+      <div class="section-head"><span class="sub">${cur ? 'Only ' + esc(cur.name) + ' · tap “All halls” on the map for everything' : 'From USC students across campus'}</span>
+        <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
+      ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : `<p class="empty">${q ? 'No listings match. Try another search.' : 'Nothing here yet. Try another hall on the map.'}</p>`}
     </section>
     <p class="footer">A peer-to-peer marketplace for USC students.<br>Rent what you need, share what you don't — Trojan to Trojan.</p>`;
-  }
-
-  function browseScreen() {
-    const q = ui.q.trim().toLowerCase();
-    let items = market().filter((l) => S.cat === 'all' || catOf(l) === S.cat);
-    if (q) items = items.filter((l) => (nameOf(l) + ' ' + l.seller + ' ' + hallById(l.hall).name).toLowerCase().includes(q));
-    items.sort(ui.sort === 'price' ? (a, b) => a.sem - b.sem : (a, b) => hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem);
-    return `${topbar('Browse')}
-    <section class="section">
-      <label class="search"><span class="sr-only">Search</span>${I.search}<input type="search" placeholder="Lamps, fans, bean bags…" value="${esc(ui.q)}" data-input="q" autocomplete="off"></label>
-      <div class="chips" role="group" aria-label="Category">${D.categories.map((c) => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-action="cat" data-id="${c.id}" aria-pressed="${S.cat === c.id}">${c.label}</button>`).join('')}</div>
-      <div class="section-head"><span class="sub">${items.length} listings from USC students</span>
-        <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
-      ${items.length ? `<div class="grid" id="browse-grid">${items.map(listingCard).join('')}</div>` : '<p class="empty">No listings match. Try another search.</p>'}
-    </section>`;
   }
 
   function itemScreen(id) {
@@ -436,7 +416,7 @@
         ${room.photos.length ? '' : '<span class="note">Add at least one photo first.</span>'}
         <button type="button" class="link" data-action="clear-key" style="align-self:center">Use a different API key</button>`;
     }
-    return `${topbar('Plan your room', '#/home')}
+    return `${topbar('AI Room')}
     <section class="section">
       <div><h2 class="serif" style="margin:0;font-size:26px">Plan your room</h2>
         <p class="sub" style="margin:6px 0 0">Add a few photos of your room from different corners. Claude looks at what's there and suggests what to rent from other Trojans, and you can preview each item in your photos.</p></div>
@@ -725,7 +705,8 @@
     const { route, id } = parse();
     let html;
     switch (route) {
-      case 'browse': html = browseScreen(); break;
+      // Browse now lives on Home; old #/browse links open Home at the list.
+      case 'browse': ui.toList = true; html = homeScreen(); break;
       case 'item': html = itemScreen(id); break;
       case 'checkout': html = checkoutScreen(); break;
       case 'sell': html = sellScreen(); break;
@@ -743,6 +724,12 @@
       lastHash = location.hash;
       if (route === 'chat') { const th = document.getElementById('thread'); if (th) th.lastElementChild && th.lastElementChild.scrollIntoView({ block: 'end' }); }
       else window.scrollTo(0, 0);
+    }
+    if (ui.toList && (route === 'home' || route === 'browse')) {
+      ui.toList = false;
+      const list = document.getElementById('listings');
+      if (list) list.scrollIntoView({ block: 'start' });
+      if (ui.focusQ) { ui.focusQ = false; const qi = app.querySelector('[data-input="q"]'); if (qi) qi.focus({ preventScroll: true }); }
     }
   }
   function rerender() { const y = window.scrollY; render(); window.scrollTo(0, y); }
@@ -778,6 +765,12 @@
       case 'hall': S.hall = id ? (S.hall === id ? null : id) : null; save(); rerender(); break;
       case 'cat': S.cat = id; save(); rerender(); break;
       case 'scroll-list': document.getElementById('listings').scrollIntoView({ behavior: 'smooth' }); break;
+      case 'search': {
+        ui.toList = true; ui.focusQ = true;
+        const r = parse().route;
+        if (r === 'home' || r === 'browse') render(); else location.hash = '#/home';
+        break;
+      }
       case 'plan': ui.plan = id; rerender(); break;
       case 'hand': ui.hand = id; rerender(); break;
       case 'fav': {
@@ -860,7 +853,7 @@
         S.cart.push({ listingId: id, plan: 'sem', handoff: l.handoff === 'pickup' ? 'pick' : 'drop' });
         save(); location.hash = '#/checkout'; toast(nameOf(l) + ' added'); break;
       }
-      case 'browse-type': ui.q = D.types[id].name; S.cat = 'all'; save(); location.hash = '#/browse'; break;
+      case 'browse-type': ui.q = D.types[id].name; S.cat = 'all'; S.hall = null; save(); ui.toList = true; location.hash = '#/home'; break;
       case 'cond': ui.draft.condition = id; rerender(); break;
       case 'rm-photo': ui.draft.photos.splice(Number(id), 1); rerender(); break;
     }

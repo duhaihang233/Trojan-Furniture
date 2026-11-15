@@ -431,10 +431,6 @@ img { display: block; max-width: 100%; }
 
 /* AI room planner + "See it in your room" */
 .stack { display: flex; flex-direction: column; gap: 8px; }
-.room-cta { text-decoration: none; color: inherit; border: 1.5px solid var(--cardinal); }
-.room-cta-ico { flex: none; width: 48px; height: 48px; border-radius: 10px; background: var(--gold-25); color: var(--cardinal); display: flex; align-items: center; justify-content: center; }
-.room-cta-ico svg { width: 26px; height: 26px; }
-.room-cta .chev { color: var(--gray); font-size: 22px; }
 .photo .fit-btn { position: absolute; right: 12px; bottom: 12px; display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border-radius: 999px; background: var(--cardinal); color: #fff; font-size: 13px; font-weight: 700; text-decoration: none; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
 .photo .fit-btn svg { width: 18px; height: 18px; }
 .eyebrow-red { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--cardinal); }

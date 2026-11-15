@@ -15,7 +15,7 @@ Built for the USC **"Building for Trojans"** hackathon.
   then the red screen shrinks into the login header. Students continue with their @usc.edu Google account.
 - **Interactive housing map** — tap a residence hall (Webb Tower, USC Village, New North, Pardee,
   Gateway, Parkside) to see what students there are renting out, with walking times from your hall.
-- **Browse & search** — filter by category (lighting, cooling, seating, sleep, tech, storage),
+- **Browse & search on Home** — right below your next handoff: filter by category (lighting, cooling, seating, sleep, tech, storage),
   search by item, seller or hall, and sort by distance or price.
 - **Listings with real sellers** — name, class year, verified USC badge, rating and rental count.
 - **Rent flow** — choose semester or full year, delivery or pickup (only what the seller offers),
@@ -23,7 +23,7 @@ Built for the USC **"Building for Trojans"** hackathon.
 - **Checkout** — payment is held until you confirm the handoff.
 - **Chat** — message sellers, plan the handoff, and tap **“Got it — confirm handoff”** to release payment.
 - **List an item** — take a photo with your iPhone camera, set your price and handoff options, and publish.
-- **Plan your room with AI** — add photos of your room (or try a sample dorm room) and Claude suggests
+- **AI Room tab** — add photos of your room (or try a sample dorm room) and Claude suggests
   what to rent, matched to the nearest TroShare listing, plus free fixes. Paste your own Anthropic API key
   the first time; it's stored only in your browser and sent only to Anthropic.
 - **See it in your room** — on any listing, place the item on your room photo: drag to move, pinch or use
