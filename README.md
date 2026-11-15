@@ -26,6 +26,9 @@ Built for the USC **"Building for Trojans"** hackathon.
 - **List an item** — add up to 4 photos (take them with your iPhone camera), set your price and handoff
   options (and a sale price if you're also open to selling), and publish. Every signed-in student sees it right away. Edit it (photos, title, category, price,
   condition, handoff) from My Account or the listing page, or hide, show or delete it.
+- **Easy list** — the List tab starts in Easy list: add a photo and Claude fills in the title, category and
+  condition (with a one-line reason), so you only set the price. Tap **Change** to edit what it wrote, or
+  switch to **Fill in myself** for the full form. If Claude can't read the photo, the full form opens.
 - **AI Generate AR model** — turn it on when listing and Claude builds a 3D model of your item from your
   photos in the background (about a minute), in the same style as the built-in AR models. The listing goes
   live right away; its card on Home shows **AR: In progress**, **AR: Success** or **AR: Failed** (with Retry).

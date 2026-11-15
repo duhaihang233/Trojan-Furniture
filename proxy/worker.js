@@ -8,6 +8,7 @@
 // - AI AR models: Claude describes a listing's item as simple 3D shapes from its photos (ar.js);
 //   the browser builds the model from that description (../armodel.js).
 // - Orders, ratings, notifications and return reminders (orders.js), with Web Push to phones (push.js).
+// - Easy list: Claude fills in a listing's title, category and condition from its photos (easy.js).
 
 import { DurableObject } from 'cloudflare:workers';
 import { arRequest, cleanArSpec } from './ar.js';
@@ -15,6 +16,7 @@ import {
   createOrder, listOrders, orderAction, reviewOrder, ratingOf, hasOpenOrder, notify,
   listNotifications, markNotificationsRead, savePushSubscription, deletePushSubscription, testPush, remindReturns,
 } from './orders.js';
+import { draftListing } from './easy.js';
 
 const ALLOWED_ORIGINS = new Set([
   'https://duhaihang233.github.io',
@@ -154,6 +156,7 @@ export default {
       if (method === 'PUT' && path === '/me/profile') return reply(200, { profile: await saveProfile(request, env, session) });
       if (method === 'GET' && path === '/listings') return reply(200, { listings: await listListings(env, session.sub, photoBase) });
       if (method === 'POST' && path === '/listings') return reply(201, { listing: await createListing(request, env, ctx, session, photoBase) });
+      if (method === 'POST' && path === '/listings/draft') return reply(200, { draft: await draftListing(request, env, session) });
       const am = path.match(/^\/listings\/([A-Za-z0-9_-]{1,40})\/ar-model$/);
       if (am && method === 'GET') return reply(200, await getArModel(env, am[1]));
       if (am && method === 'POST') return reply(200, { listing: await retryArModel(env, ctx, session, am[1], photoBase) });

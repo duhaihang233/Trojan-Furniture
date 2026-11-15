@@ -21,6 +21,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
   | Profiles from before the database existed | KV namespace `PROFILES`, copied into D1 the first time each student shows up |
 
 - **Limits per student:** 100 listings with up to 4 photos each (about 1 MB per photo); 5 new listings, 30 chat messages and 5 room analyses per minute.
+- **Easy list:** Claude (`claude-opus-5-5`, low effort, JSON schema) fills in a listing from its photos, using the room planner's key. 5 per minute per student. Roughly 1–3 cents each; the response includes token `usage` to check.
 - **AI room planner:** the Worker builds the whole Claude request itself (model `claude-opus-5-5`, prompt, JSON schema), so the key can't be used for anything else. It costs about $0.04 per analysis.
 
 ## Endpoints
@@ -32,6 +33,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | `PUT /me/profile` | Saves your class year and hall |
 | `GET /listings` | Everyone's available listings, plus all of yours |
 | `POST /listings` | Publishes a listing (photos sent as base64 JPEG) |
+| `POST /listings/draft` | Easy list: 1–4 photos (base64 JPEG) in; a suggested `title`, `category`, `condition` and `conditionNote` out ([easy.js](easy.js)) |
 | `PATCH /listings/:id` | Edits your listing: any field, or `photos` as the new list in order (`{ key }` keeps a photo, `{ data }` adds a base64 JPEG). Changing photos rebuilds an AI AR model. Also hides/shows it (`status: "paused"` / `"available"`). `openToSell: true` needs a `buyPrice` (the Buy now price) |
 | `DELETE /listings/:id` | Deletes your listing and its photos |
 | `PUT` / `DELETE /favorites/:id` | Saves or unsaves a listing |

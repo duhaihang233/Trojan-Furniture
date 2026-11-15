@@ -850,3 +850,22 @@ html, body, #app { background: var(--bg); }
   .cart-btn.bump .cart-dot, .cart-btn.bump svg { animation: none !important; }
   .fav-btn.just-faved::before, .fav-btn.just-faved::after { display: none; }
 }
+
+/* ---------- Easy list ---------- */
+.easy-intro { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--gold-25); font-size: 14px; line-height: 1.45; }
+.easy-intro svg { width: 20px; height: 20px; flex: none; color: var(--cardinal); margin-top: 1px; }
+.easy-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: var(--radius); background: #fff; border: 1.5px solid var(--card-line); box-shadow: var(--shadow); }
+.easy-card.busy { flex-direction: row; align-items: center; gap: 12px; }
+.easy-card.busy > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.easy-card.done { border-color: color-mix(in srgb, var(--gold) 70%, var(--card-line)); background: linear-gradient(180deg, #FFFDF5 0%, #fff 60%); animation: easy-in .35s cubic-bezier(.2, .8, .3, 1); }
+.easy-head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--cardinal); }
+.easy-head svg { width: 16px; height: 16px; }
+.easy-head .link { margin-left: auto; padding: 4px 0; }
+.easy-title { font-size: 20px; font-weight: 800; letter-spacing: -.2px; line-height: 1.25; }
+.easy-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.link.inline { display: inline; padding: 0; font-size: inherit; text-decoration: underline; }
+.more-toggle { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 12px 0; border: none; border-top: 1px solid var(--card-line); background: none; font-weight: 700; color: var(--cardinal); text-align: left; }
+.more-toggle::after { content: '›'; margin-left: auto; font-size: 20px; line-height: 1; transform: rotate(90deg); transition: transform .2s ease; }
+.more-toggle[aria-expanded="true"]::after { transform: rotate(-90deg); }
+@keyframes easy-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .easy-card.done { animation: none; } }

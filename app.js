@@ -498,7 +498,7 @@
   }
 
   function sellScreen() {
-    const d = ui.draft || (ui.draft = { photos: [], cat: 'seat', title: '', condition: 'Like new', sem: '', year1: '', drop: true, pick: true, sell: false, buy: '' });
+    const d = ui.draft || (ui.draft = { photos: [], cat: 'seat', title: '', condition: 'Like new', sem: '', year1: '', drop: true, pick: true, sell: false, buy: '', easy: true });
     return listingForm(d, null);
   }
 
@@ -521,42 +521,101 @@
 
   function listingForm(d, editing) {
     const conds = ['New', 'Like new', 'Good'];
-    if (!conds.includes(d.condition)) conds.unshift(d.condition); // e.g. "New, sealed" on older listings
+    if (!conds.includes(d.condition)) conds.unshift(d.condition); // e.g. "New, sealed" or "Fair"
+    const easy = !editing && d.easy !== false;
+    const ai = d.ai || {};
+    // Easy list hides the details Claude fills in, until the seller asks to change them or Claude couldn't.
+    const showDetails = !easy || d.easyEdit || ai.status === 'problem' || ai.status === 'error';
+    const showPrice = !easy || d.photos.length > 0 || d.easyEdit;
+    const modeTabs = editing ? '' : `<div class="tabs2" role="tablist" aria-label="How to list">
+        <button type="button" role="tab" class="${easy ? 'on' : ''}" aria-selected="${easy}" data-action="easy-mode" data-id="easy">${I.sparkle.replace('<svg', '<svg width="15" height="15" style="vertical-align:-2px;margin-right:5px"')}Easy list</button>
+        <button type="button" role="tab" class="${easy ? '' : 'on'}" aria-selected="${!easy}" data-action="easy-mode" data-id="manual">Fill in myself</button></div>`;
+    const easyCard = !easy ? '' : (() => {
+      if (!d.photos.length) return `<div class="easy-intro">${I.sparkle}<span><b>Add a photo and Claude fills in the rest.</b> It writes the title, picks the category and judges the condition from your photos. You just set the price.</span></div>`;
+      if (ai.status === 'busy') return `<div class="easy-card busy" role="status"><span class="spinner" aria-hidden="true"></span><span><b>Claude is reading your photo${d.photos.length > 1 ? 's' : ''}…</b><span class="meta">Usually a few seconds. You can set the price meanwhile.</span></span></div>`;
+      if (ai.status === 'problem' || ai.status === 'error') return `<div class="callout" role="alert">${I.shield}<span>${esc(ai.message)} Fill in the details below${ai.status === 'error' ? ', or <button type="button" class="link inline" data-action="easy-retry">try again</button>' : ''}.</span></div>`;
+      if (ai.status === 'done' && !d.easyEdit) {
+        const cat = (D.categories.find((c) => c.id === d.cat) || {}).label || '';
+        return `<div class="easy-card done">
+          <div class="easy-head">${I.sparkle}<b>Filled in by Claude</b><button type="button" class="link" data-action="easy-change">Change</button></div>
+          <div class="easy-title">${esc(d.title)}</div>
+          <div class="easy-tags"><span class="badge">${esc(cat)}</span><span class="badge">${esc(d.condition)}</span></div>
+          ${ai.note ? `<span class="meta">${esc(ai.note)}</span>` : ''}
+          ${ai.n < d.photos.length ? '<button type="button" class="btn btn-outline btn-small" data-action="easy-retry">Read all my photos again</button>' : ''}
+        </div>`;
+      }
+      return '';
+    })();
+    const handoffAndMore = `<div class="field"><span class="label">How will you hand it off?</span>
+        <label class="check"><input type="checkbox" data-input="drop" ${d.drop ? 'checked' : ''}>I'll drop it off at their hall</label>
+        <label class="check"><input type="checkbox" data-input="pick" ${d.pick ? 'checked' : ''}>They pick up at my spot</label></div>
+      <label class="switch-row"><span><span style="font-weight:600;display:block">Also open to selling</span><span class="meta">Students can buy it from you with Buy now</span></span><input type="checkbox" data-input="sell" ${d.sell ? 'checked' : ''}></label>
+      ${d.sell ? `<div class="field"><label for="f-buy">Sale price ($)</label><input id="f-buy" class="input" type="number" inputmode="numeric" min="1" data-input="buy" value="${esc(d.buy || '')}" placeholder="${Math.max(1, Math.round((Number(d.year1) || Number(d.sem) * 1.8 || 40) * 1.5))}"><span class="meta">What a student pays to keep it.</span></div>` : ''}`;
     return `${topbar(editing ? 'Edit listing' : 'List an item', editing ? d.back : undefined)}
     <form class="section" data-form="${editing ? 'edit' : 'sell'}" novalidate>
+      ${modeTabs}
       <div class="field"><span class="label">Photos</span>
         <div class="photos">
           ${d.photos.map((p, i) => `<div class="photo-slot"><img src="${p}" alt="Photo ${i + 1}"><button type="button" class="x" data-action="rm-photo" data-id="${i}" aria-label="Remove photo ${i + 1}">✕</button></div>`).join('')}
           ${d.photos.length < MAX_LISTING_PHOTOS ? `<label class="photo-slot add">${I.camera}Add photo<input type="file" accept="image/*" class="sr-only" data-input="photo"></label>` : ''}
         </div>
-        <span class="meta">Up to ${MAX_LISTING_PHOTOS} photos of the actual item. No photo? We'll show a stock picture.</span>
+        <span class="meta">${easy ? `Up to ${MAX_LISTING_PHOTOS} photos of the actual item, from a few angles.` : `Up to ${MAX_LISTING_PHOTOS} photos of the actual item. No photo? We'll show a stock picture.`}</span>
       </div>
-      ${editing ? (editing.ar && photosChanged(d, editing) ? `<div class="callout">${I.sparkle}<span>${d.photos.length ? 'Your AR model will be rebuilt from the new photos when you save.' : 'With no photos, the AR model will be removed when you save.'}</span></div>` : '') : `<div class="field">
-        <button type="button" class="btn ${d.ar && d.photos.length ? 'btn-cardinal' : 'btn-outline'} ar-gen" data-action="ar-toggle" aria-pressed="${!!(d.ar && d.photos.length)}" ${d.photos.length ? '' : 'disabled'}>${I.sparkle}AI Generate AR model${d.ar && d.photos.length ? ' · On' : ''}</button>
-        <span class="meta">${!d.photos.length ? 'Add a photo first. Claude builds the AR model from your photos.'
-          : d.ar ? "After you publish, Claude builds a 3D model from your photos in the background, usually in about a minute. You don't have to wait: the listing goes live right away and shows the model's progress."
-          : 'Let Claude turn your photos into a 3D model, so students can place your item in their room with AR.'}</span>
-      </div>`}
-      <div class="field"><span class="label">Category</span>
+      ${easyCard}
+      ${easy ? '' : arField(d, editing)}
+      ${showDetails ? `<div class="field"><span class="label">Category</span>
         <div class="chips" role="radiogroup" aria-label="Category">${D.categories.filter((c) => c.id !== 'all').map((c) => `<button type="button" role="radio" class="chip ${d.cat === c.id ? 'on' : ''}" aria-checked="${d.cat === c.id}" data-action="sell-cat" data-id="${c.id}">${esc(c.label)}</button>`).join('')}</div></div>
       <div class="field"><label for="f-title">Title</label><input id="f-title" class="input" data-input="title" value="${esc(d.title)}" maxlength="40" placeholder="${esc(TITLE_EXAMPLES[d.cat] || 'What are you renting out?')}"></div>
       <div class="field"><span class="label">Condition</span>
-        <div class="pills" role="radiogroup" aria-label="Condition">${conds.map((c) => `<button type="button" role="radio" class="pill ${d.condition === c ? 'on' : ''}" aria-checked="${d.condition === c}" data-action="cond" data-id="${c}">${c}</button>`).join('')}</div></div>
-      <div class="row" style="gap:10px">
+        <div class="pills" role="radiogroup" aria-label="Condition">${conds.map((c) => `<button type="button" role="radio" class="pill ${d.condition === c ? 'on' : ''}" aria-checked="${d.condition === c}" data-action="cond" data-id="${c}">${c}</button>`).join('')}</div></div>` : ''}
+      ${showPrice ? `<div class="row" style="gap:10px">
         <div class="field" style="flex:1"><label for="f-sem">Per semester ($)</label><input id="f-sem" class="input" type="number" inputmode="numeric" min="1" data-input="sem" value="${esc(d.sem)}" placeholder="27"></div>
-        <div class="field" style="flex:1"><label for="f-yr">Full year ($)</label><input id="f-yr" class="input" type="number" inputmode="numeric" min="1" data-input="year1" value="${esc(d.year1)}" placeholder="49"></div>
+        <div class="field" style="flex:1"><label for="f-yr">Full year ($)</label><input id="f-yr" class="input" type="number" inputmode="numeric" min="1" data-input="year1" value="${esc(d.year1)}" placeholder="${d.sem ? Math.round(Number(d.sem) * 1.8) || 49 : 49}"></div>
       </div>
-      <span class="meta" id="hint">${esc(priceHint(d.cat))}</span>
-      <div class="field"><span class="label">How will you hand it off?</span>
-        <label class="check"><input type="checkbox" data-input="drop" ${d.drop ? 'checked' : ''}>I'll drop it off at their hall</label>
-        <label class="check"><input type="checkbox" data-input="pick" ${d.pick ? 'checked' : ''}>They pick up at my spot</label></div>
-      <label class="switch-row"><span><span style="font-weight:600;display:block">Also open to selling</span><span class="meta">Students can buy it from you with Buy now</span></span><input type="checkbox" data-input="sell" ${d.sell ? 'checked' : ''}></label>
-      ${d.sell ? `<div class="field"><label for="f-buy">Sale price ($)</label><input id="f-buy" class="input" type="number" inputmode="numeric" min="1" data-input="buy" value="${esc(d.buy || '')}" placeholder="${Math.max(1, Math.round((Number(d.year1) || Number(d.sem) * 1.8 || 40) * 1.5))}"><span class="meta">What a student pays to keep it.</span></div>` : ''}
-      <button type="submit" class="btn btn-cardinal" ${d.busy ? 'disabled' : ''}>${editing ? (d.busy ? 'Saving…' : 'Save changes') : (d.busy ? 'Publishing…' : 'Publish listing')}</button>
+      <span class="meta" id="hint">${esc(priceHint(d.cat))}${easy ? ' Leave the full year empty to use 1.8× the semester price.' : ''}</span>` : ''}
+      ${easy ? (d.photos.length ? `<button type="button" class="more-toggle" data-action="more-toggle" aria-expanded="${!!d.moreOpen}">${d.moreOpen ? 'Fewer options' : 'More options'}<span class="meta">${d.moreOpen ? '' : (d.drop && d.pick ? 'Delivery or pickup' : (d.drop ? 'Delivery only' : 'Pickup only')) + (d.sell ? ' · for sale too' : '') + (d.ar ? ' · AR model' : '')}</span></button>
+      ${d.moreOpen ? handoffAndMore + arField(d, editing) : ''}` : '') : handoffAndMore}
+      ${easy && !d.photos.length ? '' : `<button type="submit" class="btn btn-cardinal" ${d.busy || ai.status === 'busy' ? 'disabled' : ''}>${editing ? (d.busy ? 'Saving…' : 'Save changes') : (d.busy ? 'Publishing…' : (ai.status === 'busy' ? 'Waiting for Claude…' : 'Publish listing'))}</button>`}
       ${editing ? `<a class="btn btn-outline" href="${esc(d.back)}">Cancel</a>
       <span class="note">Changes show to other students right away.</span>` : '<span class="note">Only signed-in USC students can see your listing. You can hide or delete it any time from My Account.</span>'}
     </form>`;
   }
+  // "AI Generate AR model" switch on a new listing (and the rebuild note when editing photos).
+  function arField(d, editing) {
+    return editing ? (editing.ar && photosChanged(d, editing) ? `<div class="callout">${I.sparkle}<span>${d.photos.length ? 'Your AR model will be rebuilt from the new photos when you save.' : 'With no photos, the AR model will be removed when you save.'}</span></div>` : '') : `<div class="field">
+        <button type="button" class="btn ${d.ar && d.photos.length ? 'btn-cardinal' : 'btn-outline'} ar-gen" data-action="ar-toggle" aria-pressed="${!!(d.ar && d.photos.length)}" ${d.photos.length ? '' : 'disabled'}>${I.sparkle}AI Generate AR model${d.ar && d.photos.length ? ' · On' : ''}</button>
+        <span class="meta">${!d.photos.length ? 'Add a photo first. Claude builds the AR model from your photos.'
+          : d.ar ? "After you publish, Claude builds a 3D model from your photos in the background, usually in about a minute. You don't have to wait: the listing goes live right away and shows the model's progress."
+          : 'Let Claude turn your photos into a 3D model, so students can place your item in their room with AR.'}</span>
+      </div>`;
+  }
+  function runDraft(d) {
+    if (!d || !d.photos.length) return;
+    const seq = d.aiSeq = (d.aiSeq || 0) + 1;
+    d.ai = { status: 'busy' };
+    rerenderKeepFocus();
+    AUTH.call('/listings/draft', { method: 'POST', body: JSON.stringify({ photos: d.photos.slice(0, MAX_LISTING_PHOTOS).map((u) => u.split(',')[1]) }) })
+      .then((r) => {
+        if (seq !== d.aiSeq) return; // photos changed and a newer request is running
+        const x = r.draft;
+        if (!x.ok) d.ai = { status: 'problem', message: x.problem };
+        else {
+          Object.assign(d, { title: x.title, cat: x.category, condition: x.condition, easyEdit: false });
+          d.ai = { status: 'done', note: x.conditionNote, n: d.photos.length };
+        }
+      })
+      .catch((err) => { if (seq === d.aiSeq) d.ai = { status: 'error', message: err.message }; })
+      .finally(() => { if (seq === d.aiSeq && parse().route === 'sell') rerenderKeepFocus(); });
+  }
+  // Redraw without kicking the seller out of the field they're typing in (e.g. the price).
+  function rerenderKeepFocus() {
+    const a = document.activeElement;
+    const id = a && a.id, pos = a && typeof a.selectionStart === 'number' ? a.selectionStart : null;
+    rerender();
+    const n = id && document.getElementById(id);
+    if (n) { n.focus({ preventScroll: true }); if (pos !== null) { try { n.setSelectionRange(pos, pos); } catch (e) { /* number inputs */ } } }
+  }
+
   function priceHint(cat) {
     const ps = market().filter((l) => catOf(l) === cat).map((l) => l.sem);
     const label = (D.categories.find((c) => c.id === cat) || {}).label || 'Items';
@@ -1944,9 +2003,21 @@
       }
       case 'browse-type': ui.q = D.types[id].name; ui.searchFrom = location.hash; S.cat = 'all'; save(); location.hash = '#/search'; break;
       case 'cond': formDraft().condition = id; rerender(); break;
-      case 'rm-photo': formDraft().photos.splice(Number(id), 1); rerender(); break;
+      case 'rm-photo': {
+        const d = formDraft();
+        d.photos.splice(Number(id), 1);
+        if (d === ui.draft && !d.photos.length && d.ai) { d.ai = null; d.aiSeq = (d.aiSeq || 0) + 1; }
+        rerender(); break;
+      }
       case 'edit-listing': ui.edit = null; ui.editBack = location.hash || '#/account'; location.hash = '#/edit/' + encodeURIComponent(id); break;
       case 'ar-toggle': ui.draft.ar = !ui.draft.ar; rerender(); break;
+      case 'easy-mode':
+        ui.draft.easy = id === 'easy';
+        if (ui.draft.easy && ui.draft.photos.length && !ui.draft.easyEdit && (!ui.draft.ai || !['done', 'busy'].includes(ui.draft.ai.status))) runDraft(ui.draft); else rerender();
+        break;
+      case 'easy-change': ui.draft.easyEdit = true; rerender(); { const t = document.getElementById('f-title'); if (t) t.focus(); } break;
+      case 'easy-retry': ui.draft.easyEdit = false; runDraft(ui.draft); break;
+      case 'more-toggle': ui.draft.moreOpen = !ui.draft.moreOpen; rerender(); break;
       case 'ar-start':
         el.disabled = true;
         AUTH.call('/listings/' + encodeURIComponent(id) + '/ar-model', { method: 'POST' })
@@ -1975,7 +2046,11 @@
     if (!d) return;
     if (k === 'photo') {
       const f = el.files && el.files[0];
-      if (f && d.photos.length < MAX_LISTING_PHOTOS) compress(f).then((url) => { d.photos.push(url); rerender(); }).catch(() => toast("Couldn't read that photo"));
+      if (f && d.photos.length < MAX_LISTING_PHOTOS) compress(f).then((url) => {
+        d.photos.push(url);
+        const easy = d === ui.draft && d.easy !== false;
+        if (easy && !d.easyEdit && (!d.ai || d.ai.status !== 'done')) runDraft(d); else rerender();
+      }).catch(() => toast("Couldn't read that photo"));
       return;
     }
     if (k === 'drop' || k === 'pick') { d[k] = el.checked; return; }
@@ -2090,6 +2165,7 @@
     }
     if (f.dataset.form === 'sell') {
       const d = ui.draft;
+      if (d.ai && d.ai.status === 'busy') return toast('Wait a moment: Claude is still filling it in');
       const sem = Math.round(Number(d.sem)), yr = Math.round(Number(d.year1)) || Math.round(sem * 1.8);
       if (!d.title.trim()) return toast('Add a title');
       if (!(sem > 0)) return toast('Add a price per semester');
