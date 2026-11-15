@@ -16,9 +16,10 @@
   --tab-h: 64px;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; background: var(--cream); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+html, body { margin: 0; background: #fff; color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
 body { min-height: 100vh; overscroll-behavior-y: none; }
-#app { max-width: 560px; margin: 0 auto; min-height: 100vh; padding-bottom: calc(var(--tab-h) + var(--safe-bottom) + 16px); background: var(--cream); }
+/* White shell: the gap above the tab bar used to show the cream page color. */
+#app { max-width: 560px; margin: 0 auto; min-height: 100vh; padding-bottom: calc(var(--tab-h) + var(--safe-bottom) + 16px); background: #fff; overscroll-behavior-y: none; }
 a { color: var(--cardinal); }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -94,7 +95,7 @@ img { display: block; max-width: 100%; }
 }
 
 /* Map */
-.map { position: relative; background: #E9E6E1; margin-top: 28px; }
+.map { position: relative; background: #E9E6E1; }
 .map img { width: 100%; height: auto; aspect-ratio: 1406 / 1436; }
 .pin { position: absolute; transform: translate(-50%, -100%); min-height: 34px; display: flex; align-items: center; gap: 5px; padding: 0 10px 0 6px; border-radius: 999px; border: 2px solid #fff; background: #fff; color: var(--ink); font-size: 12px; font-weight: 700; white-space: nowrap; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
 .pin .count { min-width: 20px; height: 20px; border-radius: 999px; background: var(--cardinal); color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
@@ -117,6 +118,7 @@ img { display: block; max-width: 100%; }
 
 /* Sections */
 .section { padding: 26px 16px 4px; display: flex; flex-direction: column; gap: 12px; }
+#app:not(:has(.s-page)) #listings { background: var(--cream); }
 .section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .section-head h2, .h2 { margin: 0; font-family: var(--serif); font-size: 24px; font-weight: 700; color: var(--cardinal); }
 .sub { font-size: 13px; color: var(--muted); }
