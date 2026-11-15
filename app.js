@@ -84,74 +84,10 @@
 
   function toast(msg) {
     toastEl.textContent = msg;
-    toastEl.classList.remove('show');
-    void toastEl.offsetWidth;
     toastEl.classList.add('show');
     clearTimeout(toast._t);
     toast._t = setTimeout(() => toastEl.classList.remove('show'), 2200);
   }
-
-  // Short synthesized cues. A click for controls, a two-note chime when the bottom tab changes,
-  // and a rising tone for the cardinal and gold actions. Nothing plays if motion is reduced.
-  const sfx = (() => {
-    let ctx, last = 0;
-    const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    function ac() {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return null;
-      if (!ctx) ctx = new AC();
-      if (ctx.state === 'suspended') ctx.resume();
-      return ctx;
-    }
-    function tone(freq, dur, type, peak, delay, slide) {
-      const c = ac();
-      if (!c) return;
-      const t = c.currentTime + (delay || 0);
-      const o = c.createOscillator();
-      const g = c.createGain();
-      o.type = type;
-      o.frequency.setValueAtTime(freq, t);
-      if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(peak, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g); g.connect(c.destination);
-      o.start(t); o.stop(t + dur + 0.03);
-    }
-    function click() {
-      const c = ac();
-      if (!c) return;
-      const n = Math.floor(c.sampleRate * 0.025);
-      const buf = c.createBuffer(1, n, c.sampleRate);
-      const data = buf.getChannelData(0);
-      for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / n);
-      const src = c.createBufferSource();
-      const filter = c.createBiquadFilter();
-      const g = c.createGain();
-      src.buffer = buf;
-      filter.type = 'highpass';
-      filter.frequency.value = 1100;
-      g.gain.value = 0.045;
-      src.connect(filter); filter.connect(g); g.connect(c.destination);
-      src.start();
-    }
-    function once(fn) {
-      const now = performance.now();
-      if (reduced() || now - last < 50) return;
-      last = now;
-      fn();
-    }
-    return {
-      tap() { once(() => { click(); tone(320, 0.045, 'sine', 0.028); }); },
-      tab() {
-        if (reduced()) return;
-        last = performance.now();
-        tone(523.25, 0.1, 'triangle', 0.05);
-        tone(783.99, 0.16, 'sine', 0.042, 0.07);
-      },
-      go() { once(() => { click(); tone(392, 0.08, 'triangle', 0.04, 0, 659.25); }); }
-    };
-  })();
 
   /* ---------- icons ---------- */
   const I = {
@@ -202,9 +138,6 @@
     ];
     const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
     const n = unreadCount();
-    const index = Math.max(0, tabs.findIndex(([id]) => id === active));
-    tabbar.style.setProperty('--tab-i', String(index));
-    if (!tabbar.classList.contains('armed')) requestAnimationFrame(() => tabbar.classList.add('armed'));
     const prev = tabbar.querySelector('a.on')?.getAttribute('href');
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
       `<a href="${href}" class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''}>${icon}${label}${id === 'inbox' && n ? `<span class="dot" aria-label="${n} unread">${n}</span>` : ''}</a>`
@@ -859,23 +792,6 @@
     return { route: parts[0] || 'home', id: parts[1] ? decodeURIComponent(parts[1]) : null };
   }
   let lastHash = null;
-  let shownKey = null;
-  let shownTab = null;
-  const navStack = [];
-  const TAB_ORDER = ['home', 'room', 'sell', 'inbox', 'account'];
-  function tabIndexFor(route) {
-    const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
-    const i = TAB_ORDER.indexOf(active);
-    return i < 0 ? 0 : i;
-  }
-  function themeWipe(dir) {
-    const el = document.getElementById('theme-wipe');
-    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    el.classList.remove('go', 'back');
-    void el.offsetWidth;
-    if (dir < 0) el.classList.add('back');
-    el.classList.add('go');
-  }
   function render() {
     const { route, id } = parse();
     let html;
@@ -894,27 +810,7 @@
       case 'ar': html = arScreen(id); break;
       default: html = homeScreen();
     }
-    const key = location.hash || '#/home';
-    const tabIndex = tabIndexFor(route);
-    const routeChanged = shownKey !== null && key !== shownKey;
-    const tabChanged = shownTab !== null && tabIndex !== shownTab;
-    let back = false;
-    if (shownKey === null) navStack.push(key);
-    else if (routeChanged) {
-      if (navStack.length >= 2 && navStack[navStack.length - 2] === key) { navStack.pop(); back = true; }
-      else navStack.push(key);
-    }
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    app.classList.remove('slide-next', 'slide-prev', 'slide-up');
     app.innerHTML = html;
-    if (routeChanged && !reduce) {
-      void app.offsetWidth;
-      const slide = tabChanged ? (tabIndex > shownTab ? 'slide-next' : 'slide-prev') : (back ? 'slide-prev' : 'slide-up');
-      app.classList.add(slide);
-      if (tabChanged) { themeWipe(tabIndex - shownTab); sfx.tab(); }
-    }
-    shownKey = key;
-    shownTab = tabIndex;
     renderTabbar(route);
     if (route === 'fit') setupFit();
     if (location.hash !== lastHash) {
@@ -950,17 +846,6 @@
       else renderTabbar(route);
     }, 1400);
   }
-
-  document.addEventListener('pointerdown', (e) => {
-    if (e.button > 0) return;
-    const tab = e.target.closest('#tabbar a');
-    // The chime plays when the tab actually changes. Tapping the tab you are already on just clicks.
-    if (tab) { if (tab.classList.contains('on')) sfx.tap(); return; }
-    const el = e.target.closest('button, a, .pin, .chip, .opt, .pill');
-    if (!el || el.matches(':disabled')) return;
-    if (el.matches('.btn-cardinal, .btn-gold, .send, .fit-btn')) sfx.go();
-    else sfx.tap();
-  }, true);
 
   app.addEventListener('click', (e) => {
     const el = e.target.closest('[data-action]');
