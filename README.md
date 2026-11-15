@@ -17,7 +17,7 @@ Built for the USC **"Building for Trojans"** hackathon.
   TroShare server, so they follow you to any device you log in from.
 - **Interactive housing map** — tap a residence hall (Webb Tower, USC Village, New North, Pardee,
   Gateway, Parkside) to see what students there are renting out, with walking times from your hall.
-- **Browse & search on Home** — every student's listings, your own included. Filter by category (lighting, cooling, seating, sleep, tech, storage),
+- **Browse & search on Home** — every other student's listings (yours are under My Account). Filter by category (lighting, cooling, seating, sleep, tech, storage),
   search by item, seller or hall, and sort by distance or price.
 - **Listings** — photos, semester and full-year prices, handoff options, and the seller's name,
   class year, hall and verified USC badge. Tap the heart to save one to your favorites.

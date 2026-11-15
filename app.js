@@ -119,8 +119,9 @@
   // Everything students can rent: available listings on the server. (The built-in sample listings in
   // data.js are no longer shown; they now live on the server as Thomas Du's listings. They stay in
   // data.js only so old demo rentals, chats and favorites that point at them still open.)
+  // Your own listings aren't in it: you see and manage those under My Account → My listings.
   function market() {
-    return server.listings.filter((l) => l.status === 'available');
+    return server.listings.filter((l) => l.status === 'available' && l.owner !== 'me');
   }
   function findListing(id) {
     return server.listings.find((x) => x.id === id) || D.listings.find((x) => x.id === id) || null;
@@ -215,7 +216,6 @@
     let items = all.filter((l) => (!cur || l.hall === cur.id) && (S.cat === 'all' || catOf(l) === S.cat));
     const firstType = (l) => (l.type === 'micro' ? 0 : 1); // microwaves lead the list
     const order = ui.sort === 'price' ? (a, b) => firstType(a) - firstType(b) || a.sem - b.sem : (a, b) => firstType(a) - firstType(b) || hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem;
-    // Every listing, your own included (marked "(you)"), so a seller sees what they just published.
     items = items.sort(order);
     const title = cur ? 'At ' + cur.name : 'Browse listings';
     const n = cur ? count(cur.id) : 0;
