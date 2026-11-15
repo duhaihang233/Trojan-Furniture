@@ -3,3 +3,7 @@ xcuserdata/
 DerivedData/
 build/
 *.xcuserstate
+
+# Wrangler (Cloudflare Worker) local state
+.wrangler/
+proxy/.dev.vars

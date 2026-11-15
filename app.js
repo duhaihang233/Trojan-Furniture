@@ -363,7 +363,8 @@
   }
 
   /* ---------- AI room planner + "see it in your room" ---------- */
-  const KEY_STORE = 'troshare-anthropic-key';
+  // Room analysis goes through TroShare's proxy (proxy/worker.js), which holds the Anthropic key.
+  const ROOM_API = 'https://troshare-room-proxy.thomas-haihang-du.workers.dev/analyze-room';
   const ROOM_MAX = 5;
   const SAMPLE_ROOM = 'images/sample-room.jpg';
   // Starting placement per item type: [longest side as a fraction of the photo width, vertical center (fraction of height)].
@@ -372,12 +373,6 @@
   const room = { photos: [], sample: null, analysis: null, busy: false, error: null };
   const fit = { id: null, idx: 0, x: 0.5, y: 0.65, size: 0.3, rot: 0, flip: false };
   const cutouts = {}; // product image src -> PNG data URL with the white studio backdrop removed ('' while pending or if it failed)
-
-  function apiKey() { try { return localStorage.getItem(KEY_STORE) || ''; } catch (e) { return ''; } }
-  function setApiKey(k) {
-    try { if (k) localStorage.setItem(KEY_STORE, k); else localStorage.removeItem(KEY_STORE); }
-    catch (e) { toast("This browser won't save the key"); }
-  }
 
   // Nearest listing of a type (your hall first, then walking distance, then price).
   function bestListing(type) {
@@ -399,22 +394,13 @@
   }
 
   function roomScreen() {
-    const key = apiKey();
     const a = room.analysis;
     let action;
-    if (!key) {
-      action = `<form class="card pad stack" data-form="apikey">
-        <label class="label" for="f-key">Anthropic API key</label>
-        <input id="f-key" name="key" class="input" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
-        <span class="meta">Recommendations come from Claude. Paste a key from console.anthropic.com. It's saved only in this browser and sent only to Anthropic.</span>
-        <button type="submit" class="btn btn-cardinal">Save key</button>
-      </form>`;
-    } else if (room.busy) {
-      action = `<div class="callout" role="status"><span class="spinner" aria-hidden="true"></span><span><b>Looking at your room…</b> This usually takes 20–40 seconds.</span></div>`;
+    if (room.busy) {
+      action = `<div class="callout" role="status"><span class="spinner" aria-hidden="true"></span><span><b>Looking at your room…</b> This usually takes 15–40 seconds.</span></div>`;
     } else {
       action = `<button type="button" class="btn btn-cardinal" data-action="analyze" ${room.photos.length ? '' : 'disabled'}>${a ? 'Analyze again' : 'Get recommendations'}</button>
-        ${room.photos.length ? '' : '<span class="note">Add at least one photo first.</span>'}
-        <button type="button" class="link" data-action="clear-key" style="align-self:center">Use a different API key</button>`;
+        ${room.photos.length ? '' : '<span class="note">Add at least one photo first.</span>'}`;
     }
     return `${topbar('AI Room')}
     <section class="section">
@@ -454,50 +440,25 @@
   }
 
   async function analyzeRoom() {
-    const key = apiKey();
-    if (!key || !room.photos.length || room.busy) return;
+    if (!room.photos.length || room.busy) return;
     room.busy = true; room.error = null; rerender();
-    const catalog = Object.entries(D.types).map(([id, t]) => {
+    const catalog = Object.keys(D.types).map((id) => {
       const ps = D.listings.filter((l) => l.type === id).map((l) => l.sem);
-      return `- ${id}: ${t.name}, ${ps.length} listed, $${Math.min(...ps)}–$${Math.max(...ps)} per semester`;
-    }).join('\n');
-    const content = room.photos.map((url) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: url.split(',')[1] } }));
-    content.push({ type: 'text', text: `These are photos of my dorm room in ${hallById(D.me.hall).name} at USC. What should I get for it?\n\nItems other students rent out on TroShare right now (use these ids):\n${catalog}` });
+      return { id, count: ps.length, min: Math.min(...ps), max: Math.max(...ps) };
+    });
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch(ROOM_API, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': key,
-          'anthropic-version': '2026-10-21',
-          'anthropic-beta': 'server-side-fallback-2026-07-01',
-          // Required for calling the API straight from a web page. The key is the visitor's own.
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-opus-5-5',
-          max_tokens: 16000,
-          system: ROOM_PROMPT,
-          messages: [{ role: 'user', content }],
-          output_config: { effort: 'medium', format: { type: 'json_schema', schema: ROOM_SCHEMA } },
-          fallbacks: 'default'
-        })
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ photos: room.photos.map((url) => url.split(',')[1]), hall: hallById(D.me.hall).name, catalog })
       });
       const json = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(res.status === 401
-          ? "Anthropic didn't accept that API key. Tap “Use a different API key” and try again."
-          : `The request failed (${res.status}): ${(json && json.error && json.error.message) || 'unknown error'}`);
-      }
-      if (json.stop_reason === 'refusal') throw new Error("Claude couldn't analyze these photos. Try different photos of your room.");
-      if (json.stop_reason === 'max_tokens') throw new Error('The answer was cut off. Try again with fewer photos.');
-      const block = (json.content || []).find((b) => b.type === 'text');
-      const parsed = block ? JSON.parse(block.text) : null;
-      if (!parsed || !Array.isArray(parsed.recommendations)) throw new SyntaxError('bad shape');
-      room.analysis = parsed;
+      if (!res.ok) throw new Error((json && json.error && json.error.message) || `The room planner had a problem (${res.status}). Try again.`);
+      if (!json || !Array.isArray(json.recommendations)) throw new SyntaxError('bad shape');
+      room.analysis = json;
     } catch (err) {
       if (err instanceof SyntaxError) room.error = "Couldn't read Claude's answer. Try again.";
-      else if (err instanceof TypeError) room.error = "Couldn't reach Anthropic. Check your connection and try again.";
+      else if (err instanceof TypeError) room.error = "Couldn't reach the room planner. Check your connection and try again.";
       else room.error = err.message;
     }
     room.busy = false;
@@ -507,35 +468,6 @@
       if (r && room.analysis) r.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }
-
-  const ROOM_PROMPT = 'You help USC students furnish their dorm rooms. You\'ll see one or more photos of a student\'s room and a list of items other students rent out on TroShare.\n\n' +
-    'Recommend 3 to 6 things that would make this room more comfortable or useful, most important first. Base each one on something you can actually see in the photos (for example, no desk lighting, a bare floor by the window, nowhere to store things), and don\'t suggest things the room already has. When a TroShare item fits, use its id in `item`; otherwise use "other". Write reasons in one or two short sentences addressed to the student. In `placement`, say where in the room it would go, referring to what\'s in the photos. Use "must_have" only for things the room clearly lacks.\n\n' +
-    'Add up to 3 short tips that need no purchase (rearranging, using light from the window, and so on). If the photos don\'t show a room, say so in `summary` and return no recommendations.';
-
-  const ROOM_SCHEMA = {
-    type: 'object',
-    properties: {
-      summary: { type: 'string', description: 'One or two sentences on what the room has and lacks.' },
-      recommendations: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            item: { type: 'string', enum: Object.keys(D.types).concat('other') },
-            name: { type: 'string' },
-            reason: { type: 'string' },
-            priority: { type: 'string', enum: ['must_have', 'nice_to_have'] },
-            placement: { type: 'string' }
-          },
-          required: ['item', 'name', 'reason', 'priority', 'placement'],
-          additionalProperties: false
-        }
-      },
-      tips: { type: 'array', items: { type: 'string' } }
-    },
-    required: ['summary', 'recommendations', 'tips'],
-    additionalProperties: false
-  };
 
   function fitScreen(id) {
     const l = findListing(id);
@@ -895,7 +827,6 @@
         if (window.TS_INTRO) window.TS_INTRO.logout();
         break;
       case 'analyze': analyzeRoom(); break;
-      case 'clear-key': setApiKey(''); room.error = null; rerender(); break;
       case 'rm-room': {
         const [gone] = room.photos.splice(Number(id), 1);
         if (gone === room.sample) room.sample = null;
@@ -958,12 +889,6 @@
   app.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
-    if (f.dataset.form === 'apikey') {
-      const key = f.querySelector('input').value.trim();
-      if (!key) return toast('Paste your API key first');
-      setApiKey(key); room.error = null; toast('Key saved in this browser'); rerender();
-      return;
-    }
     if (f.dataset.form === 'chat') {
       const input = f.querySelector('input');
       const text = input.value.trim();
