@@ -607,8 +607,8 @@
         </div>
         <span class="meta">${easy ? `Up to ${MAX_LISTING_PHOTOS} photos of the actual item, from a few angles.` : `Up to ${MAX_LISTING_PHOTOS} photos of the actual item. No photo? We'll show a stock picture.`}</span>
       </div>
+      ${arField(d, editing)}
       ${easyCard}
-      ${easy ? '' : arField(d, editing)}
       ${showDetails ? `<div class="field"><span class="label">Category</span>
         <div class="chips" role="radiogroup" aria-label="Category">${D.categories.filter((c) => c.id !== 'all').map((c) => `<button type="button" role="radio" class="chip ${d.cat === c.id ? 'on' : ''}" aria-checked="${d.cat === c.id}" data-action="sell-cat" data-id="${c.id}">${esc(c.label)}</button>`).join('')}</div></div>
       <div class="field"><label for="f-title">Title</label><input id="f-title" class="input" data-input="title" value="${esc(d.title)}" maxlength="40" placeholder="${esc(TITLE_EXAMPLES[d.cat] || 'What are you renting out?')}"></div>
@@ -620,8 +620,7 @@
         <div class="field" style="flex:1"><label for="f-yr">Full year ($)</label><input id="f-yr" class="input" type="number" inputmode="numeric" min="1" data-input="year1" value="${esc(d.year1)}" placeholder="${d.sem ? Math.round(Number(d.sem) * 1.8) || 49 : 49}"></div>
       </div>
       <span class="meta" id="hint">${esc(priceHint(d.cat))}${easy ? ' Leave the full year empty to use 1.8× the semester price.' : ''}</span>` : ''}
-      ${easy ? (d.photos.length ? `<button type="button" class="more-toggle" data-action="more-toggle" aria-expanded="${!!d.moreOpen}">${d.moreOpen ? 'Fewer options' : 'More options'}<span class="meta">${d.moreOpen ? '' : (d.drop && d.pick ? 'Delivery or pickup' : (d.drop ? 'Delivery only' : 'Pickup only')) + (d.sell ? ' · for sale too' : '') + (d.ar ? ' · AR model' : '')}</span></button>
-      ${d.moreOpen ? handoffAndMore + arField(d, editing) : ''}` : '') : handoffAndMore}
+      ${easy && !d.photos.length ? '' : handoffAndMore}
       ${easy && !d.photos.length ? '' : `<button type="submit" class="btn btn-cardinal" ${d.busy || ai.status === 'busy' ? 'disabled' : ''}>${editing ? (d.busy ? 'Saving…' : 'Save changes') : (d.busy ? 'Publishing…' : (ai.status === 'busy' ? 'Waiting for Claude…' : 'Publish listing'))}</button>`}
       ${editing ? `<a class="btn btn-outline" href="${esc(d.back)}">Cancel</a>
       <span class="note">Changes show to other students right away.</span>` : '<span class="note">Only signed-in USC students can see your listing. You can hide or delete it any time from My Account.</span>'}
@@ -2145,7 +2144,6 @@
         break;
       case 'easy-change': ui.draft.easyEdit = true; rerender(); { const t = document.getElementById('f-title'); if (t) t.focus(); } break;
       case 'easy-retry': ui.draft.easyEdit = false; runDraft(ui.draft); break;
-      case 'more-toggle': ui.draft.moreOpen = !ui.draft.moreOpen; rerender(); break;
       case 'housing-retry': runCheck(formDraft()); break;
       case 'review-confirm': {
         const l = findListing(id);

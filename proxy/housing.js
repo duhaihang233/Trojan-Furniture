@@ -167,7 +167,11 @@ export async function checkHousing(env, photos, title) {
   }).catch(() => null);
   const json = res && await res.json().catch(() => null);
   const unavailable = () => new HttpError(503, "Couldn't check this against USC Housing rules right now. Try again in a minute.");
-  if (!res || !res.ok || !json) throw unavailable();
+  if (!res || !res.ok || !json) {
+    // Worker logs only (wrangler tail): why the check couldn't run. Never includes the key.
+    console.error('housing check unavailable', res ? res.status : 'no response', json && json.error ? `${json.error.type}: ${json.error.message}` : '');
+    throw unavailable();
+  }
   // A refusal here means Claude wouldn't describe the photos; treat it as something a person should look at.
   if (json.stop_reason === 'refusal') return { ...decide({ item: '', findings: [] }), verdict: 'blocked', blocked: [{ rule: 'review', label: 'Needs a closer look', reason: "These photos couldn't be checked. Try different photos of just the item." }] };
   const block = (json.content || []).find((b) => b.type === 'text');
@@ -285,7 +289,7 @@ export async function auditListings(env, ctx, limit, notify) {
         await notify(env, ctx, l.owner, 'housing', `Please confirm one thing about your “${l.title}” for USC Housing rules: ${review.items[0].confirm}`, link);
       }
       done++;
-    } catch { /* try again next run */ }
+    } catch (err) { console.error('housing audit: will retry', l.id, err && err.message); /* try again next run */ }
   }));
   return done;
 }
