@@ -504,3 +504,5 @@ button.photo-slot.add { font: inherit; font-size: 12px; font-weight: 700; text-a
 model-viewer.ar-stage { display: block; width: 100%; height: 380px; background: #f4f2ee; border-radius: 12px; overflow: hidden; --poster-color: #f4f2ee; }
 .ar-launch { position: relative; }
 .ar-launch img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; }
+.photo .fit-btn.ar-launch img { width: 18px; height: 18px; }
+.ar-picks { display: flex; flex-wrap: wrap; gap: 8px; }

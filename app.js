@@ -23,7 +23,7 @@
   }
 
   // UI-only state (not persisted)
-  const ui = { plan: 'sem', hand: null, split: false, itemId: null, accTab: 'rent', q: '', sort: 'near', splitCart: false, draft: null };
+  const ui = { plan: 'sem', hand: null, split: false, itemId: null, accTab: 'rent', roomTab: 'ar', arType: null, q: '', sort: 'near', splitCart: false, draft: null };
 
   /* ---------- helpers ---------- */
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -104,7 +104,7 @@
 
   function renderTabbar(route) {
     const tabs = [
-      ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'AI Room'], ['sell', '#/sell', I.plus, 'List'],
+      ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'Room Preview'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
     const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
@@ -182,7 +182,7 @@
     const pay = ui.split ? amt / 2 : amt;
     return `${topbar(nameOf(l), '#/home')}
     <div class="photo"><img src="${esc(imgOf(l))}" alt="${esc(nameOf(l))}, the seller's actual item"><span class="badge">${esc(l.condition)}</span>
-      <a class="fit-btn" href="#/fit/${encodeURIComponent(id)}">${I.viewfinder}See it in your room</a>
+      ${AR_MODELS[l.type] ? arButton(l, 'AR Preview', 'fit-btn') : ''}
       ${mine ? '' : `<button type="button" class="icon-btn" data-action="fav" data-id="${id}" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites" style="position:absolute;top:8px;left:8px;color:var(--cardinal)">${I.heart(fav)}</button>`}</div>
     <section class="section">
       <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2><p class="sub" style="margin:4px 0 0">${esc(typeOf(l).blurb)}</p></div>
@@ -405,7 +405,19 @@
       action = `<button type="button" class="btn btn-cardinal" data-action="analyze" ${room.photos.length ? '' : 'disabled'}>${a ? 'Analyze again' : 'Get recommendations'}</button>
         ${room.photos.length ? '' : '<span class="note">Add at least one photo first.</span>'}`;
     }
-    return `${topbar('AI Room')}
+    const tab = ui.roomTab === 'rec' ? 'rec' : 'ar';
+    const tabs = `<div class="tabs2 room-tabs" role="tablist" aria-label="Room Preview">
+        <button type="button" role="tab" id="room-tab-ar" aria-controls="room-panel" class="${tab === 'ar' ? 'on' : ''}" aria-selected="${tab === 'ar'}" data-action="room-tab" data-id="ar">AR Preview</button>
+        <button type="button" role="tab" id="room-tab-rec" aria-controls="room-panel" class="${tab === 'rec' ? 'on' : ''}" aria-selected="${tab === 'rec'}" data-action="room-tab" data-id="rec">Recommendations</button>
+      </div>`;
+    if (tab === 'ar') {
+      return `${topbar('Room Preview')}
+    <section class="section">${tabs}</section>
+    <div id="room-panel" role="tabpanel" aria-labelledby="room-tab-ar">${arPreviewPanel()}</div>`;
+    }
+    return `${topbar('Room Preview')}
+    <section class="section">${tabs}</section>
+    <div id="room-panel" role="tabpanel" aria-labelledby="room-tab-rec">
     <section class="section">
       <div><h2 class="serif" style="margin:0;font-size:26px">Plan your room</h2>
         <p class="sub" style="margin:6px 0 0">Add a few photos of your room from different corners. Claude looks at what's there and suggests what to rent from other Trojans, and you can preview each item in your photos.</p></div>
@@ -415,7 +427,22 @@
       ${room.error ? `<div class="callout" role="alert">${I.shield}<span>${esc(room.error)}</span></div>` : ''}
     </section>
     ${a ? roomResults(a) : ''}
-    <p class="footer">Your photos are sent to Anthropic to be analyzed and aren't stored by TroShare.<br>AI suggestions can miss things, so check sizes before you rent.</p>`;
+    <p class="footer">Your photos are sent to Anthropic to be analyzed and aren't stored by TroShare.<br>AI suggestions can miss things, so check sizes before you rent.</p>
+    </div>`;
+  }
+
+  // AR Preview tab: pick a kind of furniture and preview it at real size with the existing AR viewer.
+  function arPreviewPanel() {
+    const picks = Object.keys(AR_MODELS).map((type) => ({ type, l: bestListing(type) })).filter((p) => p.l);
+    if (!picks.length) return '<p class="empty">No 3D previews yet.</p>';
+    const cur = picks.find((p) => p.type === ui.arType) || picks[0];
+    return `<section class="section">
+      <div><h2 class="serif" style="margin:0;font-size:26px">Preview furniture in AR</h2>
+        <p class="sub" style="margin:6px 0 0">Choose an item and place it in your room at real size with your phone’s camera.</p></div>
+      <div class="chips ar-picks" role="radiogroup" aria-label="Item to preview">${picks.map((p) =>
+        `<button type="button" role="radio" class="chip ${p === cur ? 'on' : ''}" aria-checked="${p === cur}" data-action="ar-pick" data-id="${esc(p.type)}">${esc(typeOf(p.l).name)}</button>`).join('')}</div>
+      ${arBody(cur.l)}
+    </section>`;
   }
 
   function roomResults(a) {
@@ -532,17 +559,21 @@
 
   // One tap opens the rear camera and puts the model on the floor.
   // iPhone uses AR Quick Look. Android uses Scene Viewer. A computer has no phone camera, so it shows the model instead.
-  function arButton(l, label) {
+  // cls replaces the default gold button look (the product photo uses its own pill).
+  function arButton(l, label, cls) {
     const img = `<img src="${esc(imgOf(l))}" alt="">`;
+    const look = cls || 'btn btn-gold';
+    const icon = cls ? I.viewfinder : '';
     if (onIPhone()) {
-      return `<a class="btn btn-gold ar-launch" rel="ar" href="models/${l.type}.usdz#allowsContentScaling=0">${img}${esc(label)}</a>`;
+      // AR Quick Look needs an <img> as the link's first child.
+      return `<a class="${look} ar-launch" rel="ar" href="models/${l.type}.usdz#allowsContentScaling=0">${img}${esc(label)}</a>`;
     }
     if (onAndroid()) {
       const file = new URL('models/' + l.type + '.glb', location.href).href;
       const scene = 'https://arvr.google.com/scene-viewer/1.0?mode=ar_preferred&disableScaling=true&file=' + encodeURIComponent(file) + '&title=' + encodeURIComponent(nameOf(l));
-      return `<a class="btn btn-gold ar-launch" href="${scene}">${img}${esc(label)}</a>`;
+      return `<a class="${look} ar-launch" href="${scene}">${cls ? icon : img}${esc(label)}</a>`;
     }
-    return `<a class="btn btn-gold" href="#/ar/${l.id}">${esc(label)}</a>`;
+    return `<a class="${look}" href="#/ar/${l.id}">${icon}${esc(label)}</a>`;
   }
 
   function arScreen(id) {
@@ -550,22 +581,28 @@
     if (!l) return `${topbar('Preview in AR', '#/room')}<p class="empty">This listing is gone.</p>`;
     const size = AR_MODELS[l.type];
     if (!size) return `${topbar('Preview in AR', '#/item/' + encodeURIComponent(id))}<p class="empty">No 3D preview for this item yet.</p>`;
+    const back = (room.analysis ? '#/room' : '#/item/' + encodeURIComponent(id));
+    return `${topbar('Preview in AR', back)}
+    <section class="section">
+      <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2></div>
+      ${arBody(l)}
+    </section>`;
+  }
+
+  function arBody(l) {
+    const size = AR_MODELS[l.type];
+    const id = l.id;
     const place = placementFor(l.type);
-    const back = room.analysis ? '#/room' : '#/item/' + encodeURIComponent(id);
     const src = 'models/' + l.type;
     const spot = place
       ? 'Suggested spot: ' + place.replace(/[. ]*$/, '') + '. Aim the rear camera there. When a circle appears on the floor, tap it and the furniture sits down at real size.'
       : 'Aim the rear camera at the floor. When a circle appears, tap it and the furniture sits down at real size.';
     const phone = onIPhone() || onAndroid();
-    return `${topbar('Preview in AR', back)}
-    <section class="section">
-      <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2>
-        <p class="sub" style="margin:6px 0 0">${esc(spot)}</p></div>
+    return `<p class="sub" style="margin:0">${esc(spot)}</p>
       ${phone ? arButton(l, 'Open camera and place on the floor') : `<model-viewer class="ar-stage" id="ar-model" src="${src}.glb" ios-src="${src}.usdz" alt="${esc(nameOf(l))} in 3D, ${esc(size)}" camera-controls touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>`}
-      <p class="meta">This is a typical ${esc(typeOf(l).name)}, ${esc(size)}, not a scan of the seller's photo. ${phone ? 'The camera is your phone’s rear camera. Move slowly so it can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page in Safari on your iPhone, then tap Preview in AR.'}</p>
+      <p class="meta">This is a typical ${esc(typeOf(l).name)}, ${esc(size)}, not a scan of the seller's photo. ${phone ? 'The camera is your phone’s rear camera. Move slowly so it can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page in Safari on your iPhone, then tap AR Preview.'}</p>
       <div class="card pad row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
-        ${l.owner === 'me' ? '' : `<button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>
-    </section>`;
+        ${l.owner === 'me' ? '' : `<a class="btn btn-outline btn-small" href="#/item/${encodeURIComponent(id)}">View</a><button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>`;
   }
 
   function resetFit(l, id) {
@@ -822,6 +859,8 @@
         break;
       }
       case 'acc-tab': ui.accTab = id; rerender(); break;
+      case 'room-tab': ui.roomTab = id; rerender(); break;
+      case 'ar-pick': ui.arType = id; rerender(); break;
       case 'residence': toast('Your hall comes from your USC Housing assignment'); break;
       case 'reset':
         if (window.confirm('Reset TroShare to the original demo data?')) { S = D.seedState(); ui.draft = null; save(); location.hash = '#/home'; render(); toast('Demo data reset'); }
