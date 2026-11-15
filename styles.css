@@ -581,3 +581,14 @@ model-viewer.ar-stage { display: block; width: 100%; height: 380px; background: 
 .ar-actions .btn { min-height: 50px; font-size: 14px; letter-spacing: .6px; padding: 0 12px; white-space: nowrap; }
 .ar-actions .btn svg, .ar-actions .btn img { width: 20px; height: 20px; flex: none; }
 .ar-hint { margin: 0; text-align: center; font-size: 13px; color: var(--gray); }
+
+/* AI AR model status (listing cards and photo) */
+.ar-chip { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; background: #fff; color: var(--ink); box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+.ar-chip svg { width: 13px; height: 13px; }
+.ar-chip .spinner { width: 11px; height: 11px; border-width: 2px; }
+.ar-chip.ar-success { background: var(--gold-25); color: var(--cardinal); }
+.ar-chip.ar-failed { background: #fbe9e9; color: var(--cardinal); }
+.photo .fit-btn.ar-busy { background: #fff; color: var(--ink); }
+.photo .fit-btn.ar-busy .spinner { width: 14px; height: 14px; border-width: 2px; }
+.ar-gen { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.ar-gen svg { width: 18px; height: 18px; }

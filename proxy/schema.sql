@@ -74,3 +74,13 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_conv ON messages(conv_id, id);
+
+-- AI-generated AR models (proxy/ar.js). One row per listing that asked for one.
+CREATE TABLE IF NOT EXISTS ar_models (
+  listing_id  TEXT PRIMARY KEY,
+  status      TEXT NOT NULL,             -- 'in_progress' | 'success' | 'failed'
+  error       TEXT NOT NULL DEFAULT '',
+  spec        TEXT,                      -- JSON shape description when status is 'success'
+  started_at  INTEGER NOT NULL,
+  finished_at INTEGER
+);

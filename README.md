@@ -24,6 +24,9 @@ Built for the USC **"Building for Trojans"** hackathon.
   class year, hall and verified USC badge. Tap the heart to save one to your favorites.
 - **List an item** — add up to 4 photos (take them with your iPhone camera), set your price and handoff
   options, and publish. Every signed-in student sees it right away. Hide, show or delete it from the listing.
+- **AI Generate AR model** — turn it on when listing and Claude builds a 3D model of your item from your
+  photos in the background (about 10 seconds), in the same style as the built-in AR models. The listing goes
+  live right away; its card on Home shows **AR: In progress**, **AR: Success** or **AR: Failed** (with Retry).
 - **Rent flow** — choose semester or full year, delivery or pickup (only what the seller offers),
   and split the cost with your roommate.
 - **Checkout** — renting a real student's item sends them your rental request in a chat.
@@ -71,6 +74,7 @@ app.js                Screens, routing and app logic (data from the server in pr
 config.js             Server URL and Google sign-in client ID
 auth.js               USC login session
 intro.js              Opening animation and Google login screen
+armodel.js            Builds AI-described AR models (GLB) in the browser
 proxy/                Cloudflare Worker: sign-in, accounts, listings, photos, AI room planner
 manifest.webmanifest  Install info (name, icons, colors)
 sw.js                 Service worker for offline use
