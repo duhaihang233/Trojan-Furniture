@@ -4,5 +4,5 @@ window.TS_CONFIG = {
   api: 'https://troshare-room-proxy.thomas-haihang-du.workers.dev',
   // OAuth client ID from Google Cloud Console (APIs & Services → Credentials). Must match
   // GOOGLE_CLIENT_ID in proxy/wrangler.toml.
-  googleClientId: ''
+  googleClientId: '53504650186-br07fmrs9d8apcmd502ttnd4lkjv6cua.apps.googleusercontent.com'
 };

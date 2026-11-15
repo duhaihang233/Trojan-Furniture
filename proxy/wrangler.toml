@@ -19,5 +19,5 @@ id = "a74088a0fd804e178d61049d588f7135"
 
 [vars]
 # Public OAuth client ID from Google Cloud Console; must match googleClientId in ../config.js.
-GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_ID = "53504650186-br07fmrs9d8apcmd502ttnd4lkjv6cua.apps.googleusercontent.com"
 # SESSION_SECRET (signs TroShare login tokens) is a Worker secret: npx wrangler secret put SESSION_SECRET
