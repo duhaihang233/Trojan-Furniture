@@ -210,13 +210,11 @@
     const h = hallById(l.hall);
     return `<a class="lcard" href="#/item/${l.id}">
       <div class="ph"><img src="${esc(imgOf(l))}" alt="${esc(nameOf(l))}" loading="lazy"><span class="badge">${esc(l.condition)}</span>${arChip(l)}</div>
-      <div class="gold"></div>
       <div class="body">
         <span class="name">${esc(nameOf(l))}</span>
-        <span class="price">${money(l.sem)}<small> /semester${forSale(l) ? ' · buy ' + money(l.buyPrice) : ''}</small></span>
+        <span class="price">${money(l.sem)}<small>/sem</small>${forSale(l) ? `<span class="buy-tag">Buy ${money(l.buyPrice)}</span>` : ''}</span>
+        <span class="where">${I.pin}<span>${esc(h.name)} · ${esc(h.walk)}</span></span>
         <span class="meta">${esc(l.seller)} · ${esc(l.year)}${l.owner === 'me' ? ' (you)' : ''}${l.sample ? ' · Sample' : ''}</span>
-        <span class="where">${I.pin}${esc(h.name)} · ${esc(h.walk)}</span>
-        <span class="cta">${l.owner === 'me' ? 'Your listing' : 'See details'}</span>
       </div></a>`;
   }
 
@@ -280,6 +278,7 @@
     <section class="hero">
       <p class="eyebrow">Student-to-student rentals</p>
       <h2 class="hero-title">TroShare</h2>
+      <p class="hero-sub">Rent dorm essentials from Trojans near your hall, by the semester or the year.</p>
     </section>
     <div class="map">
       <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
@@ -1105,7 +1104,7 @@
       </div>
       ${pushCard(false)}
       <a class="card pad profile-link" href="#/guide" data-action="guide-open"><span class="grow"><span class="h2" style="font-size:20px;display:block">How TroShare works</span><span class="meta">Renting, handoff, returns and ratings in 4 steps</span></span><span class="chev">${I.chev}</span></a>
-      <button type="button" class="btn btn-cardinal" data-action="logout">Log out</button>
+      <button type="button" class="btn btn-outline" data-action="logout">Log out</button>
       <div class="card pad stack">
         <span class="label">Demo tools</span>
         <span class="meta">Fill your account with sample rentals and chats with sample sellers, or clear what you've done on this device. Your listings, favorites and chats with real students aren't affected.</span>
