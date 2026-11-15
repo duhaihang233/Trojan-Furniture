@@ -853,7 +853,7 @@
     const pickupSpot = D.pickupSpots[o.seller.hall] || (hallById(o.seller.hall).name + ' lobby');
     const where = o.handoff === 'drop' ? (o.role === 'seller' ? `Delivery to ${esc(firstName(o.renter.name))}'s hall lobby` : 'Delivered to ' + esc(myLobby())) : 'Pickup at ' + esc(pickupSpot);
     const dl = rent && o.returnBy ? daysLeft(o.returnBy) : null;
-    const due = rent && o.returnBy ? `<span class="meta"><b>${o.status === 'completed' ? 'Was due' : 'Due back'} ${esc(fmtDate(o.returnBy))}</b>${['active', 'return_requested'].includes(o.status) ? ` · ${dl > 0 ? dl + ' day' + (dl === 1 ? '' : 's') + ' left' : (dl === 0 ? 'today' : 'overdue')}` : ''} · around move-out</span>` : '';
+    const due = rent && o.returnBy ? `<span class="meta"><b>${o.status === 'completed' ? 'Was due' : 'Due back'} ${esc(fmtDate(o.returnBy))}</b>${['active', 'return_requested'].includes(o.status) ? ` · ${dl > 0 ? dl + ' day' + (dl === 1 ? '' : 's') + ' left' : (dl === 0 ? 'today' : 'overdue')}` : ''} · last day of finals</span>` : '';
     let split = '';
     if (o.split) {
       const st = { pending: 'waiting for an answer', accepted: 'agreed to pay half', declined: 'said no' }[o.split.status] || o.split.status;
@@ -1049,7 +1049,7 @@
     { icon: 'pin', title: 'Find it near your hall', text: 'Browse what other Trojans are renting out. Tap a hall on the map or search for an item. Every seller is a verified USC student.' },
     { icon: 'viewfinder', title: 'See it in your room first', text: 'Add items to your cart, then open Room Preview → AR Preview to place them in your room at real size. Recommendations suggests what your room is missing.' },
     { icon: 'chat', title: 'Request it, then meet up', text: 'Tap Rent now (or Buy now). The seller accepts, you pick a time in chat, and you pay at the handoff and tap “Got it”. Add a roommate in My Account to split the cost.' },
-    { icon: 'home', title: 'Give it back at move-out', text: 'We remind you a week before it’s due (around Dec 18 for fall, May 15 for spring). Hand it back, the seller confirms, and you rate each other.' }
+    { icon: 'home', title: 'Give it back at move-out', text: 'Rentals are due on the last day of finals (Dec 16 for fall 2026, May 12 for spring 2027). We remind you a week before. Hand it back, the seller confirms, and you rate each other.' }
   ];
   function guideScreen() {
     const i = Math.max(0, Math.min(ui.guide || 0, GUIDE.length - 1));

@@ -38,7 +38,7 @@ Built for the USC **"Building for Trojans"** hackathon.
   Check out everything at once from there.
 - **Orders** — checking out sends the seller a request (and a line in your chat). The seller **accepts** or
   **declines**; accepting takes the item off the market and turns other requests down. You pay the seller at the
-  handoff and tap **“Got it”**. Rentals are due back at move-out (about Dec 18 for fall, May 15 for spring):
+  handoff and tap **“Got it”**. Rentals are due back on the last day of finals, from USC's academic calendar (Dec 16, 2026 for fall, May 12, 2027 for spring):
   you tap **“I returned it”** and the seller taps **“Got it back”**, and the item is listed again. Both of you
   follow every order under My Account → Orders. Payment isn't handled in the app.
 - **Split with your roommate** — add a roommate in My Account, then turn on “Split with …” when renting. Your

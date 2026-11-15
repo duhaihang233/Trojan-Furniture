@@ -25,17 +25,31 @@ const nameOf = (u) => sellerName(u || {});
 const firstOf = (u) => nameOf(u).split(' ')[0];
 
 /**
- * When a rental is due back, as YYYY-MM-DD. Approximate USC move-out dates: the fall semester ends
- * Dec 18 and spring May 15 (check USC Housing's calendar each year). A full year is two semesters.
+ * Semester end dates: the last day of final exams, from USC's academic calendar
+ * (https://www.usc.edu/academic-calendar/). Add each new academic year here when USC publishes it.
+ *   2026-27: Fall 2026 exams Wed-Wed December 9-16; Spring 2027 exams Wed-Wed May 5-12.
+ * Years not listed are estimated with the same days (Dec 16 and May 12).
+ */
+export const SEMESTER_ENDS = ['2026-12-16', '2027-05-12'];
+
+function semesterEnds() {
+  const ends = new Set(SEMESTER_ENDS);
+  const last = Number(SEMESTER_ENDS[SEMESTER_ENDS.length - 1].slice(0, 4));
+  for (let y = 2025; y <= last + 3; y++) {
+    if (!SEMESTER_ENDS.some((d) => d.startsWith(`${y}-05`))) ends.add(`${y}-05-12`);
+    if (!SEMESTER_ENDS.some((d) => d.startsWith(`${y}-12`))) ends.add(`${y}-12-16`);
+  }
+  return [...ends].sort();
+}
+
+/**
+ * When a rental is due back, as YYYY-MM-DD: the end of the current (or next) semester, or the one after
+ * that for a full year. Renting during a break counts toward the semester that comes next.
  */
 export function returnBy(plan, now = new Date()) {
-  const y = now.getUTCFullYear(), m = now.getUTCMonth() + 1, d = now.getUTCDate();
-  let term, ty;
-  if (m < 5 || (m === 5 && d <= 15)) { term = 'spring'; ty = y; }
-  else if (m < 12 || d <= 18) { term = 'fall'; ty = y; }
-  else { term = 'spring'; ty = y + 1; }
-  if (term === 'spring') return plan === 'yr' ? `${ty}-12-18` : `${ty}-05-15`;
-  return plan === 'yr' ? `${ty + 1}-05-15` : `${ty}-12-18`;
+  const today = new Date(now.getTime() - 8 * 3600_000).toISOString().slice(0, 10); // Los Angeles, near enough
+  const ends = semesterEnds().filter((d) => d >= today);
+  return plan === 'yr' ? ends[1] : ends[0];
 }
 const prettyDate = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 // Days until a YYYY-MM-DD date, counted in Los Angeles (UTC-8 is close enough for reminders).
