@@ -25,10 +25,7 @@ window.TS_AUTH = (() => {
     if (session) headers.authorization = 'Bearer ' + session.token;
     let res;
     try { res = await fetch(cfg.api + path, { ...options, headers }); }
-    catch (e) {
-      if (e && e.name === 'AbortError') throw e;
-      throw new Error("Couldn't reach TroShare. Check your connection and try again.");
-    }
+    catch (e) { throw new Error("Couldn't reach TroShare. Check your connection and try again."); }
     const json = await res.json().catch(() => null);
     if (res.status === 401 && session && path !== '/auth/google') {
       write(null);
