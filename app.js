@@ -1061,7 +1061,7 @@
   S = load();
   render();
   // Make sure the saved session is still valid and pick up profile changes made on another device.
-  if (AUTH.signedIn()) AUTH.refresh().then(() => { applyUser(); rerender(); }).catch(() => { /* a 401 signs out via ts-signed-out */ });
+  if (AUTH.signedIn()) AUTH.refresh().then(() => { const before = D.me.hall; applyUser(); if (S.hall === before) { S.hall = D.me.hall; save(); } rerender(); }).catch(() => { /* a 401 signs out via ts-signed-out */ });
 
   if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
     document.body.classList.add('native-app');
