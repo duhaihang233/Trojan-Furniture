@@ -12,6 +12,10 @@ export const AR_SYSTEM_PROMPT = `You build 3D models of dorm furniture and gadge
 
 Your model sits next to TroShare's built-in models, so match their style: a clean, tidy product model made of a few dozen simple shapes with subtle surface textures, like a well-made product mock-up. It is not a photo scan. A student should recognize the exact item from the listing at a glance: its overall shape, proportions, colors, and the few details that set it apart (handles, legs, buttons, a shade, seams, a screen).
 
+Using the photos:
+- The seller may add up to 4 photos of the same item, often from different angles (front, side, back, top, close-ups of details). Use all of them together: take the front view, colors and details from the photos that show them best, and use the other angles to work out depth, the back and sides, and how the parts connect. Where photos seem to disagree, trust the clearest, least distorted view. Build one model of the one item, never a mix of several items.
+- If one photo clearly shows a different object (for example, the box it came in, the room, or an unrelated item), ignore that photo and model the item the other photos show.
+
 Coordinates:
 - Units are meters. +Y is up. The floor is y = 0.
 - Center the item on x = 0 and z = 0. The item's front faces +Z, toward the viewer. Width runs along X, depth along Z.
@@ -20,7 +24,7 @@ Coordinates:
 How to work:
 1. Identify the item and estimate its real dimensions. Real size matters most, because students use AR to check whether it fits. Combine what the photo shows (proportions, nearby objects for scale) with typical sizes for that kind of product. For example: a desk lamp is about 0.45 m tall, a mini fridge about 0.48 × 0.85 × 0.45 m, a tower fan about 1 m tall, a bean bag about 0.8 m across. Report the size in \`size_m\` as [width, height, depth].
 2. Break the item into its main recognizable parts (body, legs, handles, shade, base, cushions, screen, door, cord, and so on). Use 6 to 30 parts and about 30 to 90 shapes in total. Aim for medium detail: get the silhouette and proportions right, round off hard edges where the real item is rounded (for example, ellipsoids or cylinders along soft edges, or a slightly smaller box inset on a larger one for a beveled look), and include details about 1 cm or larger that make the item recognizable (feet, handles, buttons, vents, seams, hinges, panel lines, piping). Leave out anything smaller, and don't model text or logos.
-   Before you write the shapes, look at the photo carefully: note how the parts connect, their relative sizes, and where each one sits. Then check your coordinates add up: parts that rest on each other should touch, and the overall size should match \`size_m\`.
+   Before you write the shapes, look at every photo carefully: note how the parts connect, their relative sizes, and where each one sits. Then check your coordinates add up: parts that rest on each other should touch, and the overall size should match \`size_m\`.
 3. Build each part from shapes:
    - box: \`center\`, \`size\` [width, height, depth], and \`rotation_deg\` [x, y, z] (degrees, applied in X, then Y, then Z order; use [0, 0, 0] for an upright box).
    - cylinder: a straight rod or disc from \`start\` to \`end\` with \`radius\`. Any direction works.
@@ -100,10 +104,14 @@ export const AR_SCHEMA = {
 
 /** Messages API request body for one listing. `photos` are base64 JPEGs. */
 export function arRequest(photos, listing) {
-  const content = photos.map((data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } }));
+  // Each photo gets a label, so Claude can tell the views apart and knows they show one item.
+  const content = photos.flatMap((data, i) => [
+    { type: 'text', text: `Photo ${i + 1} of ${photos.length}:` },
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } },
+  ]);
   content.push({
     type: 'text',
-    text: `Build the 3D model for this TroShare listing.\nTitle: ${listing.title}\nCategory: ${listing.category}\nCondition: ${listing.condition}`,
+    text: `Build the 3D model for this TroShare listing.${photos.length > 1 ? ` All ${photos.length} photos show the same item; use every one of them.` : ''}\nTitle: ${listing.title}\nCategory: ${listing.category}\nCondition: ${listing.condition}`,
   });
   return {
     model: AR_MODEL,

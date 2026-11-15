@@ -698,7 +698,7 @@ async function buildArModel(env, listing, startedAt) {
     "UPDATE ar_models SET status = ?, error = ?, spec = ?, finished_at = ? WHERE listing_id = ? AND started_at = ?")
     .bind(status, error, spec ? JSON.stringify(spec) : null, Date.now(), listing.id, startedAt).run();
   try {
-    const keys = JSON.parse(listing.photos || '[]').slice(0, 2);
+    const keys = JSON.parse(listing.photos || '[]').slice(0, 4); // every photo the seller added (at most 4)
     const photos = [];
     for (const k of keys) {
       const buf = await env.PHOTOS.get(k, 'arrayBuffer');
