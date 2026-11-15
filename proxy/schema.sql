@@ -86,3 +86,17 @@ CREATE TABLE IF NOT EXISTS ar_models (
   started_at  INTEGER NOT NULL,
   finished_at INTEGER
 );
+
+-- Roommates. A student invites another by @usc.edu email; pending until that student accepts.
+CREATE TABLE IF NOT EXISTS roommates (
+  id          TEXT PRIMARY KEY,
+  inviter     TEXT NOT NULL REFERENCES users(sub),
+  email       TEXT NOT NULL,              -- the invited student's email, lowercase
+  invitee     TEXT REFERENCES users(sub), -- set when they accept
+  status      TEXT NOT NULL,              -- 'pending' | 'accepted'
+  created_at  INTEGER NOT NULL,
+  accepted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS roommates_inviter ON roommates(inviter);
+CREATE INDEX IF NOT EXISTS roommates_email ON roommates(email, status);
+CREATE INDEX IF NOT EXISTS roommates_invitee ON roommates(invitee);

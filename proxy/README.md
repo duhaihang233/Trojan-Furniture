@@ -13,7 +13,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 
   | What | Where |
   |---|---|
-  | Students, listings, favorites, chats | D1 database `troshare-db` (tables in [schema.sql](schema.sql)) |
+  | Students, listings, favorites, chats, roommates | D1 database `troshare-db` (tables in [schema.sql](schema.sql)) |
   | Listing photos (JPEG) | KV namespace `PHOTOS` |
   | Profiles from before the database existed | KV namespace `PROFILES`, copied into D1 the first time each student shows up |
 
@@ -32,6 +32,10 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | `PATCH /listings/:id` | Edits your listing: any field, or `photos` as the new list in order (`{ key }` keeps a photo, `{ data }` adds a base64 JPEG). Changing photos rebuilds an AI AR model. Also hides/shows it (`status: "paused"` / `"available"`). `openToSell: true` needs a `buyPrice` (the Buy now price) |
 | `DELETE /listings/:id` | Deletes your listing and its photos |
 | `PUT` / `DELETE /favorites/:id` | Saves or unsaves a listing |
+| `GET /roommates` | Your roommates and invites (sent and received, `pending` or `accepted`) |
+| `POST /roommates` | Invites a roommate by `email` (@usc.edu only) |
+| `POST /roommates/:id/accept` | Accepts an invite sent to your email |
+| `DELETE /roommates/:id` | Cancels, declines or removes a roommate |
 | `GET /conversations` | Your chats, with the latest message and unread count |
 | `POST /conversations` | Opens (or reopens) the chat with a listing's owner |
 | `GET /conversations/:id/messages?after=N` | Messages newer than `N` (the app polls every 4 s); marks them read |

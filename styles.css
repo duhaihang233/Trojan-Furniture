@@ -612,3 +612,32 @@ model-viewer.ar-stage { display: block; width: 100%; height: 380px; background: 
 .ar-empty { display: flex; flex-direction: column; gap: 12px; text-align: center; padding: 28px 18px; background: #fff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .ar-empty h2 { margin: 0; font-size: 22px; }
 .ar-empty .sub { margin: 0; }
+
+/* Profile: tap-to-choose tiles */
+.profile-link { display: flex; flex-direction: row; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+.profile-link .chev svg { width: 22px; height: 22px; color: var(--muted); display: block; }
+fieldset.pick { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+fieldset.pick legend { padding: 0; margin-bottom: 8px; }
+.choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.choice { position: relative; display: flex; align-items: center; min-height: 54px; padding: 10px 34px 10px 14px; border: 2px solid #CCC; border-radius: 10px; background: #fff; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: border-color .15s, background .15s; }
+.choice .t { font-weight: 700; font-size: 15px; line-height: 1.25; }
+.choice .ck { position: absolute; top: 50%; right: 10px; width: 20px; height: 20px; margin-top: -10px; border-radius: 50%; background: var(--cardinal); color: #fff; display: none; align-items: center; justify-content: center; }
+.choice .ck svg { width: 13px; height: 13px; }
+.choice:has(input:checked) { border-color: var(--cardinal); background: var(--gold-25); }
+.choice:has(input:checked) .ck { display: inline-flex; }
+.choice:has(input:focus-visible) { outline: 3px solid var(--gold); outline-offset: 2px; }
+.choice:active { transform: scale(.97); }
+
+/* Roommates */
+.rm-row { display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 6px 0; flex-wrap: wrap; }
+.rm-row .av { width: 36px; height: 36px; font-size: 15px; flex: none; }
+.rm-row .grow { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.rm-name { font-weight: 600; overflow-wrap: anywhere; }
+.rm-row .meta { overflow-wrap: anywhere; }
+.rm-invite { background: var(--gold-25); border-radius: 10px; padding: 10px; }
+.rm-btns { display: flex; gap: 8px; width: 100%; }
+.rm-btns .btn { flex: 1; }
+.rm-form { display: flex; gap: 8px; }
+.rm-form .input { flex: 1; min-width: 0; }
+.rm-form .btn { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.rm-form .btn svg { width: 18px; height: 18px; }

@@ -106,6 +106,11 @@ export default {
       if (lm && method === 'DELETE') { await deleteListing(env, session, lm[1]); return reply(200, { ok: true }); }
       const fm = path.match(/^\/favorites\/([A-Za-z0-9_-]{1,40})$/);
       if (fm && (method === 'PUT' || method === 'DELETE')) return reply(200, { favorites: await setFavorite(env, session.sub, fm[1], method === 'PUT') });
+      if (method === 'GET' && path === '/roommates') return reply(200, { roommates: await listRoommates(env, session) });
+      if (method === 'POST' && path === '/roommates') { await inviteRoommate(request, env, session); return reply(201, { roommates: await listRoommates(env, session) }); }
+      const rm = path.match(/^\/roommates\/(r[0-9a-f]{16})(\/accept)?$/);
+      if (rm && method === 'POST' && rm[2]) { await acceptRoommate(env, session, rm[1]); return reply(200, { roommates: await listRoommates(env, session) }); }
+      if (rm && method === 'DELETE' && !rm[2]) { await removeRoommate(env, session, rm[1]); return reply(200, { roommates: await listRoommates(env, session) }); }
       if (method === 'GET' && path === '/conversations') return reply(200, { conversations: await listConversations(env, session.sub, photoBase) });
       if (method === 'POST' && path === '/conversations') return reply(200, { conversation: await startConversation(request, env, session, photoBase) });
       const cm = path.match(/^\/conversations\/(c[0-9a-f]{16})\/messages$/);
@@ -313,6 +318,64 @@ async function saveProfile(request, env, session) {
   await ensureUser(env, session);
   await env.DB.prepare('UPDATE users SET year = ?, hall = ? WHERE sub = ?').bind(input.year, input.hall, session.sub).run();
   return profileOf(await env.DB.prepare('SELECT * FROM users WHERE sub = ?').bind(session.sub).first());
+}
+
+/* ---------------- Roommates ---------------- */
+// A student invites a roommate by their @usc.edu email. The invite is pending until the student with that
+// email signs in and accepts it; then both see each other as roommates. Either one can remove it, and
+// a pending invite can be canceled by the sender or declined by the person invited.
+const MAX_ROOMMATES = 3; // a quad
+const USC_EMAIL = /^[a-z0-9._%+-]+@usc\.edu$/;
+const normEmail = (e) => String(e || '').trim().toLowerCase();
+
+async function listRoommates(env, session) {
+  const me = normEmail(session.email);
+  const { results } = await env.DB.prepare(`SELECT r.*, a.name AS a_name, a.picture AS a_picture, a.email AS a_email,
+      b.name AS b_name, b.picture AS b_picture
+    FROM roommates r JOIN users a ON a.sub = r.inviter LEFT JOIN users b ON b.sub = r.invitee
+    WHERE r.inviter = ?1 OR r.invitee = ?1 OR (r.status = 'pending' AND r.email = ?2)
+    ORDER BY r.created_at`).bind(session.sub, me).all();
+  return results.map((r) => {
+    const sent = r.inviter === session.sub;
+    return {
+      id: r.id, status: r.status, direction: sent ? 'sent' : 'received',
+      // The other student: for an invite you sent, their email (and name once they've accepted).
+      name: sent ? (r.b_name || '') : r.a_name, email: sent ? r.email : r.a_email,
+      picture: (sent ? r.b_picture : r.a_picture) || '', createdAt: r.created_at, acceptedAt: r.accepted_at,
+    };
+  });
+}
+
+async function inviteRoommate(request, env, session) {
+  const input = await readJson(request, 2_000);
+  const email = normEmail(input.email);
+  if (!/^[^@\s]+@[^@\s]+\.edu$/.test(email)) throw new HttpError(400, "Enter your roommate's .edu email.");
+  if (!USC_EMAIL.test(email)) throw new HttpError(400, 'TroShare is for USC students. Use their @usc.edu email.');
+  if (email === normEmail(session.email)) throw new HttpError(400, "That's your own email.");
+  await ensureUser(env, session);
+  const mine = (await listRoommates(env, session)).filter((r) => r.direction === 'sent' || r.status === 'accepted');
+  if (mine.some((r) => normEmail(r.email) === email)) throw new HttpError(400, "You've already invited them.");
+  // They invited you first: accepting theirs is the same thing.
+  const theirs = (await listRoommates(env, session)).find((r) => r.direction === 'received' && r.status === 'pending' && normEmail(r.email) === email);
+  if (theirs) return acceptRoommate(env, session, theirs.id);
+  if (mine.length >= MAX_ROOMMATES) throw new HttpError(400, `You can have up to ${MAX_ROOMMATES} roommates.`);
+  const id = 'r' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+  await env.DB.prepare("INSERT INTO roommates (id, inviter, email, status, created_at) VALUES (?, ?, ?, 'pending', ?)")
+    .bind(id, session.sub, email, Date.now()).run();
+}
+
+async function acceptRoommate(env, session, id) {
+  const row = await env.DB.prepare('SELECT * FROM roommates WHERE id = ?').bind(id).first();
+  if (!row || row.status !== 'pending' || row.email !== normEmail(session.email)) throw new HttpError(404, 'That invite is no longer open.');
+  await ensureUser(env, session);
+  await env.DB.prepare("UPDATE roommates SET status = 'accepted', invitee = ?, accepted_at = ? WHERE id = ?").bind(session.sub, Date.now(), id).run();
+}
+
+async function removeRoommate(env, session, id) {
+  const row = await env.DB.prepare('SELECT * FROM roommates WHERE id = ?').bind(id).first();
+  const mine = row && (row.inviter === session.sub || row.invitee === session.sub || (row.status === 'pending' && row.email === normEmail(session.email)));
+  if (!mine) throw new HttpError(404, 'That roommate is already removed.');
+  await env.DB.prepare('DELETE FROM roommates WHERE id = ?').bind(id).run();
 }
 
 async function readJson(request, maxBytes) {

@@ -45,7 +45,11 @@ Built for the USC **"Building for Trojans"** hackathon.
     From a suggestion, **See it in my room** places the item on your room photo: drag to move, pinch or
     use the slider to resize, twist to rotate.
 - **AR Preview on listings** — the button on each listing's photo opens the same AR preview.
-- **My Account** — your profile, orders (rentals and purchases), your listings, recently viewed and favorites.
+- **My Account** — your profile, roommates, orders (rentals and purchases), your listings, recently viewed and favorites.
+  Tap **Your profile** to open its own page, where you tap your class year and hall to choose them.
+- **Roommates** — in My Account, enter your roommate's @usc.edu email and tap **Add roommate**. The invite
+  shows as **Pending** until they sign in and tap **Accept** (or Decline) in their My Account; then you're
+  roommates, and "Split with my roommate" uses their name. Either of you can remove it.
 - **Works like a native app on iPhone** — installable to the Home Screen, full-screen, offline-capable.
 
 ## Use it on iPhone

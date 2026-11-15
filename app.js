@@ -34,7 +34,7 @@
 
   // Data on the TroShare server: every student's listings, your favorites, and your chats with other
   // students (msgs holds the loaded messages of each chat, by chat id).
-  const server = { listings: [], favorites: [], convs: [], msgs: {}, loaded: false, loading: false, error: null, at: 0 };
+  const server = { listings: [], favorites: [], convs: [], msgs: {}, roommates: [], loaded: false, loading: false, error: null, at: 0 };
   const MAX_LISTING_PHOTOS = 4;
 
   /* ---------- helpers ---------- */
@@ -99,7 +99,8 @@
     if (loadingServer) return loadingServer;
     server.loading = true; server.error = null;
     loadingServer = (async () => {
-      const [l, me, c] = await Promise.allSettled([AUTH.call('/listings'), AUTH.refresh(), AUTH.call('/conversations')]);
+      const [l, me, c, rm] = await Promise.allSettled([AUTH.call('/listings'), AUTH.refresh(), AUTH.call('/conversations'), AUTH.call('/roommates')]);
+      if (rm.status === 'fulfilled') server.roommates = rm.value.roommates;
       if (l.status === 'fulfilled') { server.listings = l.value.listings.map(fromServer); server.loaded = true; server.at = Date.now(); }
       if (me.status === 'fulfilled' && me.value) server.favorites = me.value.favorites || [];
       if (c.status === 'fulfilled') server.convs = c.value.conversations;
@@ -156,6 +157,8 @@
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/></svg>',
     cart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2.5l2.2 11h10.6l2.2-8H6.6"/><circle cx="9.5" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg>',
+    chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>',
+    people: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.8"/><path d="M16.5 14.6c2.6.2 4.4 2 5 5.4"/></svg>',
     chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg>',
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
@@ -214,7 +217,7 @@
       ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'Room Preview'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
-    const active = { browse: 'home', search: 'home', item: 'home', cart: 'home', checkout: 'home', edit: 'account', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
+    const active = { browse: 'home', search: 'home', item: 'home', cart: 'home', checkout: 'home', edit: 'account', profile: 'account', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
     const n = unreadCount();
     const prev = tabbar.querySelector('a.on')?.getAttribute('href');
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
@@ -390,7 +393,7 @@
         <button type="button" role="radio" class="opt ${ui.hand === 'drop' ? 'on' : ''}" aria-checked="${ui.hand === 'drop'}" data-action="hand" data-id="drop" ${canDrop ? '' : 'disabled'}>${I.truck}<span><span class="t">Delivered</span><span class="n">${canDrop ? 'To your hall lobby' : 'Not offered'}</span></span></button>
         <button type="button" role="radio" class="opt ${ui.hand === 'pick' ? 'on' : ''}" aria-checked="${ui.hand === 'pick'}" data-action="hand" data-id="pick" ${canPick ? '' : 'disabled'}>${I.pin}<span><span class="t">Pickup</span><span class="n">${canPick ? esc(D.pickupSpots[l.hall]) : 'Not offered'}</span></span></button>
       </div>
-      ${buying ? '' : `<label class="switch-row"><span><span style="font-weight:600;display:block">Split with my roommate</span><span class="meta">They get an invite to pay half</span></span><input type="checkbox" data-action="split" ${ui.split ? 'checked' : ''}></label>`}`}
+      ${buying ? '' : `<label class="switch-row"><span><span style="font-weight:600;display:block">Split with ${esc(roommateFirst() || 'my roommate')}</span><span class="meta">They get an invite to pay half</span></span><input type="checkbox" data-action="split" ${ui.split ? 'checked' : ''}></label>`}`}
     </section>
     ${mine ? '' : `<div class="paybar">
       <div class="row"><div style="display:flex;flex-direction:column"><span class="big-price">${money(pay)}</span><span class="meta">${buying ? 'to buy' : (ui.split ? 'your half, ' : '') + (ui.plan === 'sem' ? 'per semester' : 'per year')}</span></div>
@@ -448,7 +451,7 @@
         </div>`;
       }).join('')}
       <div class="card pad" style="display:flex;flex-direction:column;gap:8px">
-        <label class="switch-row"><span><span style="font-weight:600;display:block">Split with my roommate</span><span class="meta">Invite sent to their USC email</span></span><input type="checkbox" data-action="split-cart" ${ui.splitCart ? 'checked' : ''}></label>
+        <label class="switch-row"><span><span style="font-weight:600;display:block">Split with ${esc(roommateFirst() || 'my roommate')}</span><span class="meta">Invite sent to their USC email</span></span><input type="checkbox" data-action="split-cart" ${ui.splitCart ? 'checked' : ''}></label>
         <div class="callout">${I.shield}<span>Sellers are paid only after you tap <b>“Got it”</b> at handoff. Snap a condition photo then, and again when you return it.</span></div>
       </div>
     </section>
@@ -745,7 +748,11 @@
     </section>
     <div style="height:4px;background:var(--gold)"></div>
     <section class="section">
-      ${profileForm('Save changes')}
+      <a class="card pad profile-link" href="#/profile">
+        <span class="grow"><span class="h2" style="font-size:20px;display:block">Your profile</span>
+          <span class="meta">${esc(D.me.year || 'Add your class year')} · ${esc(AUTH.profile && AUTH.profile.hall ? hallById(D.me.hall).name : 'Add where you live')}</span></span>
+        <span class="chev">${I.chev}</span></a>
+      ${roommatesCard()}
       <div class="card pad stack">
         <div class="section-head"><h2 class="h2" style="font-size:20px">My rating</h2></div>
         <p class="meta" style="margin:0;font-size:13px">No reviews yet. After each rental, the other student rates how it went, and your rating shows up here for sellers to see.</p>
@@ -770,24 +777,69 @@
     <p class="footer">A peer-to-peer marketplace for USC students.<br>Rent what you need, share what you don't — Trojan to Trojan.</p>`;
   }
 
+  // Class year and hall, chosen by tapping a tile on the page (radio buttons, not a dropdown menu).
   function profileForm(submitLabel) {
     const saved = (AUTH.profile && AUTH.profile.hall) || '';
+    const year = (AUTH.profile && AUTH.profile.year) || '';
+    const tile = (name, value, on, body) => `<label class="choice"><input type="radio" class="sr-only" name="${name}" value="${esc(value)}" ${on ? 'checked' : ''}>${body}<span class="ck">${I.check}</span></label>`;
     return `<form class="card pad stack" data-form="profile">
-      <h2 class="h2" style="font-size:20px">Your profile</h2>
-      <label class="label" for="f-year">Class year</label>
-      <select id="f-year" name="year" class="input" required>
-        <option value="" ${D.me.year ? '' : 'selected'} disabled>Choose…</option>
-        ${YEARS.map((y) => `<option ${D.me.year === y ? 'selected' : ''}>${y}</option>`).join('')}
-      </select>
-      <label class="label" for="f-hall">Where you live</label>
-      <select id="f-hall" name="hall" class="input" required>
-        <option value="" ${saved ? '' : 'selected'} disabled>Choose your residence hall…</option>
-        ${D.halls.map((h) => `<option value="${h.id}" ${saved === h.id ? 'selected' : ''}>${esc(h.name)}</option>`).join('')}
-      </select>
+      <fieldset class="pick"><legend class="label">Class year</legend>
+        <div class="choice-grid">${YEARS.map((y) => tile('year', y, year === y, `<span class="t">${esc(y)}</span>`)).join('')}</div></fieldset>
+      <fieldset class="pick"><legend class="label">Where you live</legend>
+        <div class="choice-grid">${D.halls.map((h) => tile('hall', h.id, saved === h.id, `<span class="t">${esc(h.name)}</span>`)).join('')}</div></fieldset>
       <span class="meta">Sellers see your first name, last initial, class year and hall. Your email stays private.</span>
       <button type="submit" class="btn btn-cardinal">${esc(submitLabel)}</button>
     </form>`;
   }
+
+  function profileScreen() {
+    return `${topbar('Your profile', '#/account')}
+    <section class="section">
+      <div><h2 class="serif" style="margin:0;font-size:26px">Your profile</h2>
+        <p class="sub" style="margin:6px 0 0">Tap your class year and the hall you live in, then save.</p></div>
+      ${profileForm('Save changes')}
+    </section>`;
+  }
+
+  /* ---------- roommates ---------- */
+  const roommateFirst = () => { const r = server.roommates.find((x) => x.status === 'accepted' && x.name); return r ? r.name.split(' ')[0] : ''; };
+  function roommatesCard() {
+    const rs = server.roommates;
+    const av = (r) => r.picture ? `<img class="av sm av-photo" src="${esc(r.picture)}" alt="" referrerpolicy="no-referrer">` : `<span class="${avClass(r.name || r.email)} sm">${esc(initial(r.name || r.email))}</span>`;
+    const rows = rs.map((r) => {
+      if (r.direction === 'received' && r.status === 'pending') {
+        return `<div class="rm-row rm-invite">${av(r)}<span class="grow"><span class="rm-name"><b>${esc(r.name)}</b> invited you to be roommates</span><span class="meta">${esc(r.email)}</span></span>
+          <span class="rm-btns"><button type="button" class="btn btn-cardinal btn-small" data-action="rm-accept" data-id="${esc(r.id)}">Accept</button><button type="button" class="btn btn-outline btn-small" data-action="rm-remove" data-id="${esc(r.id)}" data-kind="decline">Decline</button></span></div>`;
+      }
+      const pending = r.status === 'pending';
+      return `<div class="rm-row">${av(r)}<span class="grow"><span class="rm-name">${esc(r.name || r.email)}</span>${r.name ? `<span class="meta">${esc(r.email)}</span>` : ''}</span>
+        ${pending ? '<span class="badge gray">Pending</span>' : ''}
+        <button type="button" class="link" style="font-size:13px" data-action="rm-remove" data-id="${esc(r.id)}" data-kind="${pending ? 'cancel' : 'remove'}">${pending ? 'Cancel' : 'Remove'}</button></div>`;
+    }).join('');
+    return `<div class="card pad stack" id="roommates">
+      <div class="section-head"><h2 class="h2" style="font-size:20px">Roommates</h2></div>
+      ${rows || '<p class="meta" style="margin:0">Add your roommate to split rentals with them.</p>'}
+      <form class="rm-form" data-form="roommate" novalidate>
+        <input class="input" type="email" name="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="roommate@usc.edu" aria-label="Roommate's .edu email" data-input="rm-email" value="${esc(ui.rmEmail || '')}">
+        <button type="submit" class="btn btn-cardinal btn-small" ${ui.rmBusy ? 'disabled' : ''}>${I.people}Add roommate</button>
+      </form>
+      <span class="meta">They'll see your invite in My Account when they sign in to TroShare with that email. It shows as Pending until they accept.</span>
+    </div>`;
+  }
+  const setRoommates = (list) => {
+    const changed = JSON.stringify(list) !== JSON.stringify(server.roommates);
+    server.roommates = list;
+    return changed;
+  };
+  // While My Account is open, check for answers to invites (and new invites) every 10 seconds.
+  function refreshRoommates() {
+    if (!AUTH.signedIn()) return Promise.resolve();
+    return AUTH.call('/roommates').then((r) => {
+      const typing = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.input === 'rm-email';
+      if (setRoommates(r.roommates) && parse().route === 'account' && !typing) rerender();
+    }).catch(() => {});
+  }
+  setInterval(() => { if (!document.hidden && parse().route === 'account') refreshRoommates(); }, 10000);
 
   function welcomeScreen() {
     return `${topbar('Welcome')}
@@ -1254,6 +1306,7 @@
       case 'inbox': html = inboxScreen(); break;
       case 'chat': html = chatScreen(id); break;
       case 'account': html = accountScreen(); break;
+      case 'profile': html = profileScreen(); break;
       case 'room': html = roomScreen(); break;
       case 'fit': html = fitScreen(id); break;
       case 'ar': html = arScreen(id); break;
@@ -1415,6 +1468,21 @@
         break;
       }
       case 'acc-tab': ui.accTab = id; rerender(); break;
+      case 'rm-accept':
+        el.disabled = true;
+        AUTH.call('/roommates/' + encodeURIComponent(id) + '/accept', { method: 'POST' })
+          .then((r) => { setRoommates(r.roommates); rerender(); toast('You are roommates now'); })
+          .catch((err) => { el.disabled = false; toast(err.message); refreshRoommates(); });
+        break;
+      case 'rm-remove': {
+        const kind = el.dataset.kind;
+        if (kind === 'remove' && !window.confirm('Remove this roommate?')) break;
+        el.disabled = true;
+        AUTH.call('/roommates/' + encodeURIComponent(id), { method: 'DELETE' })
+          .then((r) => { setRoommates(r.roommates); rerender(); toast(kind === 'decline' ? 'Invite declined' : (kind === 'cancel' ? 'Invite canceled' : 'Roommate removed')); })
+          .catch((err) => { el.disabled = false; toast(err.message); refreshRoommates(); });
+        break;
+      }
       case 'pause': updateMine(id, { status: 'paused' }, 'Hidden from other students'); break;
       case 'resume': updateMine(id, { status: 'available' }, 'Other students can see it again'); break;
       case 'delete-listing':
@@ -1435,7 +1503,7 @@
       case 'ar-pick': ui.arPick = id; rerender(); break;
       case 'sell-cat': formDraft().cat = id; rerender(); break; // same categories as the Home chips
       case 'ar-desk': toast('Open TroShare on your iPhone to use the camera'); break;
-      case 'residence': { const f = app.querySelector('[data-form=profile]'); if (f) f.scrollIntoView({ behavior: 'smooth' }); break; }
+      case 'residence': location.hash = '#/profile'; break;
       case 'sample-data':
         if (window.confirm('Replace your rentals and sample-seller chats on this device with sample activity?')) {
           S = D.sampleState(D.me.first, hallById(D.me.hall).name); save(); location.hash = '#/home'; render(); toast('Sample activity loaded');
@@ -1519,6 +1587,7 @@
     }
     if (k === 'fit-size') { fit.size = Number(el.value) / 100; applyFit(); return; }
     const fd = formDraft();
+    if (k === 'rm-email') { ui.rmEmail = el.value; return; }
     if (fd && (k === 'title' || k === 'sem' || k === 'year1' || k === 'buy')) fd[k] = el.value;
   });
 
@@ -1536,8 +1605,22 @@
       btn.disabled = true;
       const firstTime = AUTH.needsSetup();
       AUTH.saveProfile({ year, hall })
-        .then(() => { applyUser(); if (firstTime) location.hash = '#/home'; render(); toast(firstTime ? 'You are all set' : 'Profile saved'); })
+        .then(() => { applyUser(); if (firstTime) location.hash = '#/home'; else if (parse().route === 'profile') location.hash = '#/account'; render(); toast(firstTime ? 'You are all set' : 'Profile saved'); })
         .catch((err) => { btn.disabled = false; toast(err.message); });
+      return;
+    }
+    if (f.dataset.form === 'roommate') {
+      const email = (ui.rmEmail || f.elements.email.value || '').trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.edu$/.test(email)) return toast("Enter your roommate's .edu email");
+      if (ui.rmBusy) return;
+      ui.rmBusy = true; rerender();
+      AUTH.call('/roommates', { method: 'POST', body: JSON.stringify({ email }) })
+        .then((r) => {
+          const accepted = r.roommates.some((x) => x.email === email && x.status === 'accepted');
+          setRoommates(r.roommates); ui.rmEmail = ''; ui.rmBusy = false; rerender();
+          toast(accepted ? 'You are roommates now' : 'Invite sent');
+        })
+        .catch((err) => { ui.rmBusy = false; rerender(); toast(err.message); });
       return;
     }
     if (f.dataset.form === 'chat') {
@@ -1656,11 +1739,12 @@
     // Coming back to Home or My Account after a minute picks up new listings from other students.
     const r = parse().route;
     if ((r === 'home' || r === 'account') && Date.now() - server.at > 60000) syncFromServer();
+    else if (r === 'account') refreshRoommates();
     if (r === 'inbox') refreshConvs();
   });
   // Signing in or out switches whose data is shown.
   const switchUser = () => {
-    Object.assign(server, { listings: [], favorites: [], convs: [], msgs: {}, loaded: false, error: null, at: 0 });
+    Object.assign(server, { listings: [], favorites: [], convs: [], msgs: {}, roommates: [], loaded: false, error: null, at: 0 });
     applyUser(); S = load(); ui.draft = null; room.analysis = null; render();
     if (AUTH.signedIn()) syncFromServer();
   };
