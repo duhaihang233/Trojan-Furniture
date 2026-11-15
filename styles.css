@@ -236,7 +236,7 @@ img { display: block; max-width: 100%; }
 
 /* Tab bar */
 .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: #fff; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 6px 4px calc(6px + var(--safe-bottom)); max-width: 560px; margin: 0 auto; }
-.tabbar::before { content: ''; position: absolute; top: 0; left: 0; width: 20%; height: 6px; border-radius: 0 0 4px 4px; background: linear-gradient(90deg, var(--cardinal), var(--gold)); box-shadow: 0 0 10px var(--gold); transform: translateX(calc(var(--tab-i, 0) * 100%)); pointer-events: none; }
+.tabbar::before { content: ''; position: absolute; top: 0; left: 0; width: 25%; height: 6px; border-radius: 0 0 4px 4px; background: linear-gradient(90deg, var(--cardinal), var(--gold)); box-shadow: 0 0 10px var(--gold); transform: translateX(calc(var(--tab-i, 0) * 100%)); pointer-events: none; }
 .tabbar.armed::before { transition: transform .46s cubic-bezier(.22, 1.15, .32, 1); }
 .tabbar a { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 50px; margin: 2px 4px 0; border-radius: 12px; text-decoration: none; color: var(--gray); font-size: 11px; font-weight: 500; }
 .tabbar a.on { color: var(--cardinal); font-weight: 700; background: var(--gold-25); }
@@ -542,3 +542,6 @@ model-viewer.ar-stage { display: block; width: 100%; height: 380px; background: 
 #intro-wait { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 #intro-wait[hidden] { display: none; }
 .av-photo { object-fit: cover; padding: 0; background: var(--tile); }
+/* Photo picker under a listing's main photo */
+.photo-pick { flex: none; padding: 0; border: 2px solid transparent; background: none; cursor: pointer; }
+.photo-pick.on { border-color: var(--cardinal); }

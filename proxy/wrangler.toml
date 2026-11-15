@@ -1,21 +1,33 @@
-# Cloudflare Worker that calls Claude for the TroShare "AI Room" feature.
+# TroShare server: USC sign-in, student data (D1 + KV), and the Claude-powered room planner.
 # The Anthropic API key is a Worker secret (set with `npx wrangler secret put ANTHROPIC_API_KEY`),
 # never stored in this repository.
 name = "troshare-room-proxy"
 main = "worker.js"
 compatibility_date = "2025-09-01"
 
-# Per-visitor limit: 5 analyses per minute per IP address.
+# Per-student limits: 5 room analyses and 5 new listings per minute (separate counters).
 [[unsafe.bindings]]
 name = "LIMITER"
 type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 5, period = 60 }
 
-# Student profiles (class year, hall), keyed by Google account ID.
+# Profiles saved before the D1 database existed; read once to copy them into D1 (see ensureUser).
 [[kv_namespaces]]
 binding = "PROFILES"
 id = "a74088a0fd804e178d61049d588f7135"
+
+# Listing photos (JPEG bytes), keyed by random photo IDs.
+[[kv_namespaces]]
+binding = "PHOTOS"
+id = "8babd522bbe04c0ca3563064940be516"
+
+# Students, listings and favorites. Tables are in schema.sql:
+#   npx wrangler d1 execute troshare-db --remote --file schema.sql
+[[d1_databases]]
+binding = "DB"
+database_name = "troshare-db"
+database_id = "95d4037c-ff86-43ef-98c7-9cc53b552942"
 
 [vars]
 # Public OAuth client ID from Google Cloud Console; must match googleClientId in ../config.js.
