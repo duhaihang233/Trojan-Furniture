@@ -107,7 +107,7 @@
       ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'AI Room'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
-    const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room' }[route] || route;
+    const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
     const n = unreadCount();
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
       `<a href="${href}" class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''}>${icon}${label}${id === 'inbox' && n ? `<span class="dot" aria-label="${n} unread">${n}</span>` : ''}</a>`
@@ -447,6 +447,7 @@
       ${l ? `<div class="rec-listing">
           <div class="row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><b>${money(l.sem)}/sem · ${esc(l.seller)}</b><span class="meta">${esc(hallById(l.hall).name)} · ${esc(hallById(l.hall).walk)}</span></span></div>
           <div class="row" style="gap:8px"><a class="btn btn-outline btn-small" style="flex:1" href="#/fit/${l.id}">See it in my room</a><a class="btn btn-cardinal btn-small" style="flex:1" href="#/item/${l.id}">View listing</a></div>
+          <a class="btn btn-gold" href="#/ar/${l.id}">Preview in AR</a>
           <button type="button" class="link" data-action="browse-type" data-id="${esc(r.item)}" style="align-self:flex-start;padding:4px 0">Browse all ${esc(D.types[r.item].name.toLowerCase())}s →</button>
         </div>` : '<span class="meta">Nobody is renting this out on TroShare yet.</span>'}
     </div>`;
@@ -568,6 +569,60 @@
       <div class="card pad row"><span class="thumb"><img src="${esc(src)}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
         ${l.owner === 'me' ? '' : `<button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>
     </section>`;
+  }
+
+  // Category stand-ins at real-world size. The file name matches the item type.
+  const AR_MODELS = {
+    lamp: 'about 41 cm tall',
+    floor: 'about 1.5 m tall',
+    fan: 'about 1 m tall',
+    bean: 'about 67 cm tall and 84 cm across',
+    tv: 'about 80 cm wide and 63 cm tall, with the stand',
+    topper: 'an XL twin, 91 cm by 203 cm',
+    cart: 'about 85 cm tall'
+  };
+
+  function placementFor(type) {
+    const recs = (room.analysis && room.analysis.recommendations) || [];
+    const rec = recs.find((r) => r.item === type);
+    return rec ? rec.placement : '';
+  }
+
+  function arScreen(id) {
+    const l = findListing(id);
+    if (!l) return `${topbar('Preview in AR', '#/room')}<p class="empty">This listing is gone.</p>`;
+    const size = AR_MODELS[l.type];
+    if (!size) return `${topbar('Preview in AR', '#/item/' + encodeURIComponent(id))}<p class="empty">No 3D preview for this item yet.</p>`;
+    const place = placementFor(l.type);
+    const back = room.analysis ? '#/room' : '#/item/' + encodeURIComponent(id);
+    const src = 'models/' + l.type;
+    const spot = place
+      ? 'Suggested spot: ' + place.replace(/[. ]*$/, '') + '. Point the rear camera that way, then tap the floor circle to set it down.'
+      : 'Point the rear camera at the floor and tap the circle to set it down.';
+    return `${topbar('Preview in AR', back)}
+    <section class="section">
+      <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2>
+        <p class="sub" style="margin:6px 0 0">${esc(spot)} Drag the model to look at it first.</p></div>
+      <model-viewer class="ar-stage" id="ar-model" src="${src}.glb" ios-src="${src}.usdz" alt="${esc(nameOf(l))} in 3D, ${esc(size)}" camera-controls touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor" interaction-prompt="auto">
+        <button type="button" slot="ar-button" class="btn btn-gold ar-open">Open camera and place</button>
+      </model-viewer>
+      <p class="meta">This is a typical ${esc(typeOf(l).name)}, ${esc(size)}, not a scan of the seller's photo. On iPhone the camera opens in Safari over HTTPS. Here, drag to turn it.</p>
+      <div class="card pad row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
+        ${l.owner === 'me' ? '' : `<button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>
+    </section>`;
+  }
+
+  function setupAR() {
+    const mv = document.getElementById('ar-model');
+    const btn = mv && mv.querySelector('.ar-open');
+    if (!mv || !btn) return;
+    const sync = () => { btn.hidden = !mv.canActivateAR; };
+    const ready = customElements.whenDefined ? customElements.whenDefined('model-viewer') : Promise.resolve();
+    ready.then(() => {
+      mv.addEventListener('load', sync);
+      mv.addEventListener('ar-status', sync);
+      sync();
+    }).catch(() => {});
   }
 
   function resetFit(l, id) {
@@ -715,11 +770,13 @@
       case 'account': html = accountScreen(); break;
       case 'room': html = roomScreen(); break;
       case 'fit': html = fitScreen(id); break;
+      case 'ar': html = arScreen(id); break;
       default: html = homeScreen();
     }
     app.innerHTML = html;
     renderTabbar(route);
     if (route === 'fit') setupFit();
+    if (route === 'ar') setupAR();
     if (location.hash !== lastHash) {
       lastHash = location.hash;
       if (route === 'chat') { const th = document.getElementById('thread'); if (th) th.lastElementChild && th.lastElementChild.scrollIntoView({ block: 'end' }); }
