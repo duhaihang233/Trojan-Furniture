@@ -248,3 +248,49 @@ export async function enforceHousing(env, session, photos, title, token, confirm
 export function housingNotes(stored) {
   return String(stored || '').split(',').filter((id) => byId[id]).map((id) => ({ rule: id, label: byId[id].label, note: byId[id].note }));
 }
+
+/* ---- Audit of listings published before the check existed (runs from the Worker's cron) ---- */
+
+const bytesToB64 = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
+
+/**
+ * Checks up to `limit` listings that were never checked (housing_checked = 0):
+ *   blocked  -> hidden (unless it's out with a renter), the owner is told why; they can change it or delete it
+ *   confirm  -> stays up; the owner is asked to confirm what the photos can't show
+ *   restricted -> stays up, with the note for renters
+ * A listing whose check fails (Claude unavailable) stays unchecked and is tried on the next run.
+ */
+export async function auditListings(env, ctx, limit, notify) {
+  if (!env.ANTHROPIC_API_KEY) return 0;
+  const { results } = await env.DB.prepare('SELECT * FROM listings WHERE housing_checked = 0 ORDER BY created_at LIMIT ?').bind(limit).all();
+  let done = 0;
+  await Promise.all(results.map(async (l) => {
+    try {
+      const photos = [];
+      for (const k of JSON.parse(l.photos || '[]')) {
+        const buf = env.PHOTOS && await env.PHOTOS.get(k, 'arrayBuffer');
+        if (buf) photos.push(bytesToB64(new Uint8Array(buf)));
+      }
+      const r = await checkHousing(env, photos, l.title);
+      const housing = r.restricted.map((x) => x.rule).join(',');
+      const review = r.verdict === 'blocked' ? { status: 'blocked', items: r.blocked }
+        : (r.verdict === 'confirm' ? { status: 'confirm', items: r.confirm } : null);
+      const hide = review && review.status === 'blocked' && (l.status === 'available' || l.status === 'paused');
+      await env.DB.prepare('UPDATE listings SET housing = ?, housing_review = ?, housing_checked = 1, status = ? WHERE id = ? AND housing_checked = 0')
+        .bind(housing, review ? JSON.stringify(review) : '', hide ? 'paused' : l.status, l.id).run();
+      const link = '#/item/' + l.id;
+      if (review && review.status === 'blocked') {
+        await notify(env, ctx, l.owner, 'housing', `Your “${l.title}” is hidden: USC Housing doesn't allow ${review.items.map((x) => x.label.toLowerCase()).join(', ')}. ${review.items[0].reason}`, link);
+      } else if (review) {
+        await notify(env, ctx, l.owner, 'housing', `Please confirm one thing about your “${l.title}” for USC Housing rules: ${review.items[0].confirm}`, link);
+      }
+      done++;
+    } catch { /* try again next run */ }
+  }));
+  return done;
+}
+
+/** What the owner sees about their listing's review ({ status: 'blocked' | 'confirm', items }), or null. */
+export function housingReviewOut(stored) {
+  try { const r = JSON.parse(stored || ''); return r && r.status ? r : null; } catch { return null; }
+}

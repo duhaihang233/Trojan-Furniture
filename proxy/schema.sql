@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS listings (
                                         -- Added later; on an older database: ALTER TABLE listings ADD COLUMN buy_price INTEGER;
   photos       TEXT NOT NULL DEFAULT '[]', -- JSON array of photo keys in the PHOTOS KV namespace
   housing      TEXT NOT NULL DEFAULT '',   -- USC Housing restrictions that apply (housing.js), e.g. 'cooking_appliance'
+  housing_checked INTEGER NOT NULL DEFAULT 0, -- 1 once the USC Housing check has run (older listings are audited by the cron)
+  housing_review  TEXT NOT NULL DEFAULT '',  -- audit result the owner must act on: JSON { status: 'blocked' | 'confirm', items }
                                            -- Added later; on an older database: ALTER TABLE listings ADD COLUMN housing TEXT NOT NULL DEFAULT '';
   status       TEXT NOT NULL DEFAULT 'available', -- 'available' | 'paused'
   created_at   INTEGER NOT NULL,

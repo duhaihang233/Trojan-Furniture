@@ -18,7 +18,7 @@ import {
   listNotifications, markNotificationsRead, savePushSubscription, deletePushSubscription, testPush, remindReturns,
 } from './orders.js';
 import { draftListing } from './easy.js';
-import { checkListing, enforceHousing, housingNotes } from './housing.js';
+import { checkListing, enforceHousing, housingNotes, auditListings, housingReviewOut } from './housing.js';
 
 const ALLOWED_ORIGINS = new Set([
   'https://duhaihang233.github.io',
@@ -264,6 +264,8 @@ export default {
   // Daily cron (wrangler.toml [triggers]): return reminders for rentals that are due soon or overdue.
   async scheduled(event, env, ctx) {
     ctx.waitUntil(remindReturns(env, ctx));
+    // Listings published before the USC Housing check existed get checked a few at a time.
+    ctx.waitUntil(auditListings(env, ctx, 5, notify));
   },
 };
 
@@ -489,6 +491,7 @@ function listingOut(row, me, photoBase) {
     mine: row.owner === me,
     ar: arOut(row),
     housing: housingNotes(row.housing), // USC Housing restrictions renters should know (e.g. cooking appliances)
+    housingReview: row.owner === me ? housingReviewOut(row.housing_review) : null, // only the owner sees what to fix
   };
 }
 const LISTING_SELECT = `SELECT l.*, u.given, u.family, u.name, u.year AS u_year, u.hall AS u_hall, u.picture AS u_picture,
@@ -577,8 +580,8 @@ async function createListing(request, env, ctx, session, photoBase) {
 
   const id = 'u' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const now = Date.now();
-  await env.DB.prepare(`INSERT INTO listings (id, owner, type, title, condition, sem, year1, handoff, open_to_sell, buy_price, photos, housing, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)`)
+  await env.DB.prepare(`INSERT INTO listings (id, owner, type, title, condition, sem, year1, handoff, open_to_sell, buy_price, photos, housing, housing_checked, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'available', ?, ?)`)
     .bind(id, session.sub, fields.type, fields.title, fields.condition, fields.sem, fields.year1, fields.handoff, fields.open_to_sell, fields.buy_price ?? null,
       JSON.stringify(keys), housing, now, now).run();
   // "AI Generate AR model" on the List form: the listing is published right away and the model
@@ -647,6 +650,7 @@ async function updateListing(request, env, ctx, session, id, photoBase) {
     }
     fields.housing = await enforceHousing(env, session, asSent, fields.title ?? row.title, input.checkToken, input.housingConfirmed);
     housingChecked = true;
+    Object.assign(fields, { housing_checked: 1, housing_review: '' });
     const keys = [];
     for (const p of plan) keys.push(p.key || await storePhoto(env, session, p.bytes));
     removed = current.filter((k) => !keys.includes(k));
@@ -658,6 +662,18 @@ async function updateListing(request, env, ctx, session, id, photoBase) {
     const asSent = [];
     for (const k of current) { const buf = await env.PHOTOS.get(k, 'arrayBuffer'); if (buf) asSent.push(bytesToB64(new Uint8Array(buf))); }
     fields.housing = await enforceHousing(env, session, asSent, fields.title, input.checkToken, input.housingConfirmed);
+    Object.assign(fields, { housing_checked: 1, housing_review: '' });
+    housingChecked = true;
+  }
+  // From the audit: a hidden item USC Housing doesn't allow stays hidden; an unsure one is cleared once confirmed.
+  const review = housingReviewOut(row.housing_review);
+  if (review && !housingChecked) {
+    if (review.status === 'blocked' && input.status === 'available') {
+      throw new HttpError(400, `USC Housing doesn't allow this item (${review.items.map((x) => x.label).join('; ')}). Change the photos or title if that's wrong, or delete it.`);
+    }
+    if (review.status === 'confirm' && Array.isArray(input.housingConfirmed) && review.items.every((x) => input.housingConfirmed.includes(x.rule))) {
+      fields.housing_review = '';
+    }
   }
   const cols = Object.keys(fields);
   if (cols.length) {

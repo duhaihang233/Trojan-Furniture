@@ -43,7 +43,8 @@
   // Old sample listings use halls that aren't on the list any more; they show as "USC housing".
   const OTHER_HALL = { id: '', name: 'USC housing', code: '', short: 'USC', left: null, top: null, mins: 30, walk: 'Near campus', label: 'USC' };
   const hallById = (id) => D.halls.find((h) => h.id === id) || { ...OTHER_HALL, id };
-  const typeOf = (l) => D.types[l.type];
+  // An unknown type (e.g. data written outside the app) falls back to the storage cart, so screens still draw.
+  const typeOf = (l) => D.types[l.type] || D.types.cart;
   const nameOf = (l) => l.title || typeOf(l).name;
   const imgOf = (l) => l.photo || typeOf(l).img;
   const catOf = (l) => typeOf(l).cat;
@@ -85,6 +86,7 @@
       photo: x.photos[0] || null, photos: x.photos, hall: x.seller.hall, seller: x.seller.name, year: x.seller.year,
       rating: typeof x.seller.rating === 'number' ? x.seller.rating : null, reviews: x.seller.reviews || 0, rentals: 0, owner: x.mine ? 'me' : 'other', status: x.status, openToSell: x.openToSell, buyPrice: x.buyPrice || null, createdAt: x.createdAt,
       housing: x.housing || [], // USC Housing restrictions renters should know
+      housingReview: x.housingReview || null, // owner only: the audit says it's not allowed, or needs a confirmation
       ar: x.ar // AI AR model: null, or { status: 'in_progress' | 'success' | 'failed', error }
     };
   }
@@ -405,10 +407,11 @@
         ${mine ? '' : `<button type="button" class="btn btn-outline btn-small" data-action="message" data-id="${esc(id)}">Message</button>`}
       </div>
       ${(l.housing || []).map((h) => `<div class="callout housing-note">${I.shield}<span><b>${esc(h.label)}:</b> ${esc(h.note)}</span></div>`).join('')}
+      ${mine ? housingReviewPanel(l) : ''}
       ${mine ? `<div class="callout">${I.shield}<span>${l.status === 'rented' ? '<b>Rented out.</b> It’s off the market until it comes back. Follow it under My Account → Orders.' : l.status === 'sold' ? '<b>Sold.</b> Other students can’t see it any more.' : l.status === 'paused' ? '<b>Hidden.</b> Other students can’t see this listing until you show it again.' : 'This is your listing. It\'s visible to verified USC students. Manage it from <a href="#/account">My Account</a>.'}</span></div>
       <button type="button" class="btn btn-cardinal btn-small" data-action="edit-listing" data-id="${esc(id)}">Edit listing</button>
       <div class="row" style="gap:8px">
-        ${l.status === 'rented' || l.status === 'sold' ? '' : l.status === 'paused'
+        ${l.status === 'rented' || l.status === 'sold' || (l.housingReview && l.housingReview.status === 'blocked') ? '' : l.status === 'paused'
           ? `<button type="button" class="btn btn-cardinal btn-small" style="flex:1" data-action="resume" data-id="${esc(id)}">Show it again</button>`
           : `<button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="pause" data-id="${esc(id)}">Hide for now</button>`}
         <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="delete-listing" data-id="${esc(id)}">Delete</button>
@@ -611,6 +614,24 @@
       .catch((err) => { if (seq === d.aiSeq) d.ai = { status: 'error', message: err.message }; })
       .finally(() => { if (seq === d.aiSeq && parse().route === 'sell') rerenderKeepFocus(); });
   }
+  // The owner's view of an audit result on an older listing.
+  function housingReviewPanel(l) {
+    const r = l.housingReview;
+    if (!r) return '';
+    const rules = '<a class="housing-src" href="https://housing.usc.edu/index.php/publication/2026-2027-living-agreement/" target="_blank" rel="noopener">USC Housing rules</a>';
+    if (r.status === 'blocked') {
+      return `<div class="housing-card bad" role="alert"><div class="housing-head">${I.shield}<b>Hidden: USC Housing doesn't allow this item</b></div>
+        ${r.items.map((x) => `<div class="housing-rule"><b>${esc(x.label)}</b><span class="meta">${esc(x.reason)}</span></div>`).join('')}
+        <span class="meta">We checked listings from before the USC Housing check. If this is a mistake, edit the photos or title and it's checked again; otherwise delete it. See the ${rules}.</span></div>`;
+    }
+    const picked = ui.reviewConfirm && ui.reviewConfirm.id === l.id ? ui.reviewConfirm.rules : [];
+    return `<div class="housing-card warn"><div class="housing-head">${I.shield}<b>Confirm one thing for USC Housing</b></div>
+      ${r.items.map((x) => `<div class="housing-rule"><b>${esc(x.label)}?</b><span class="meta">${esc(x.reason)}</span>
+        <label class="check"><input type="checkbox" data-input="review-confirm" data-id="${esc(l.id)}" data-rule="${esc(x.rule)}" ${picked.includes(x.rule) ? 'checked' : ''}>${esc(x.confirm)}</label></div>`).join('')}
+      <button type="button" class="btn btn-cardinal btn-small" data-action="review-confirm" data-id="${esc(l.id)}">Confirm</button>
+      <span class="meta">Your listing stays up meanwhile. ${rules}.</span></div>`;
+  }
+
   /* ---- USC Housing rules check (server: proxy/housing.js) ---- */
   // What was checked: the title and the photos. When either changes, the result no longer applies.
   const checkSig = (d) => String(d.title || '').trim().toLowerCase() + '|' + d.photos.map((p) => p.length + ':' + p.slice(-24)).join(',');
@@ -1198,7 +1219,7 @@
       return `<a class="list-row" href="${r.thread ? '#/chat/' + r.thread : '#/item/' + l.id}"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">From ${esc(l.seller)} · ${r.kind === 'buy' ? 'Bought' : (r.plan === 'sem' ? '1 Semester' : 'Full year')} · ${money(r.price)}${r.split ? ' (split)' : ''}</span><span class="meta">${esc(r.when)}</span></span><span class="badge ${statusBadge(r.status)}">${esc(r.status)}</span></a>`;
     }).join('');
     const mine = myListings();
-    const mineRows = mine.map((m) => `<div class="list-row"><a class="row grow" href="#/item/${esc(m.id)}" style="flex-direction:row;align-items:center;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">${money(m.sem)} per semester · <span class="badge ${m.status === 'available' ? '' : (m.status === 'rented' ? 'red' : 'gray')}" style="font-size:11px">${({ paused: 'Hidden', rented: 'Rented out', sold: 'Sold' })[m.status] || 'Available'}</span></span><span class="meta">${esc(m.condition)} · ${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span></a><button type="button" class="btn btn-outline btn-small" data-action="edit-listing" data-id="${esc(m.id)}" aria-label="Edit ${esc(nameOf(m))}">Edit</button></div>`).join('');
+    const mineRows = mine.map((m) => `<div class="list-row"><a class="row grow" href="#/item/${esc(m.id)}" style="flex-direction:row;align-items:center;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">${money(m.sem)} per semester · <span class="badge ${m.status === 'available' ? '' : (m.status === 'rented' ? 'red' : 'gray')}" style="font-size:11px">${({ paused: 'Hidden', rented: 'Rented out', sold: 'Sold' })[m.status] || 'Available'}</span>${m.housingReview ? ` <span class="badge red" style="font-size:11px">${m.housingReview.status === 'blocked' ? 'Not allowed' : 'Confirm needed'}</span>` : ''}</span><span class="meta">${esc(m.condition)} · ${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span></a><button type="button" class="btn btn-outline btn-small" data-action="edit-listing" data-id="${esc(m.id)}" aria-label="Edit ${esc(nameOf(m))}">Edit</button></div>`).join('');
     const viewed = S.viewed.map(findListing).filter(Boolean);
     const favs = server.favorites.map(findListing).filter(Boolean);
     const avatar = D.me.picture
@@ -2083,6 +2104,15 @@
       case 'easy-retry': ui.draft.easyEdit = false; runDraft(ui.draft); break;
       case 'more-toggle': ui.draft.moreOpen = !ui.draft.moreOpen; rerender(); break;
       case 'housing-retry': runCheck(formDraft()); break;
+      case 'review-confirm': {
+        const l = findListing(id);
+        const picked = ui.reviewConfirm && ui.reviewConfirm.id === id ? ui.reviewConfirm.rules : [];
+        if (!l || !l.housingReview) break;
+        const missing = l.housingReview.items.filter((x) => !picked.includes(x.rule));
+        if (missing.length) { toast('Tick the box first: ' + missing[0].confirm); break; }
+        updateMine(id, { housingConfirmed: picked }, 'Thanks, confirmed');
+        break;
+      }
       case 'ar-start':
         el.disabled = true;
         AUTH.call('/listings/' + encodeURIComponent(id) + '/ar-model', { method: 'POST' })
@@ -2107,6 +2137,12 @@
     if (!k) return;
     if (k === 'sort') { ui.sort = el.value; rerender(); return; }
     if (k === 'room-photo') { addRoomFiles(el.files); return; }
+    if (k === 'review-confirm') { // on a listing page, not the List form
+      const lid = el.dataset.id, rule = el.dataset.rule;
+      const cur = ui.reviewConfirm && ui.reviewConfirm.id === lid ? ui.reviewConfirm.rules : [];
+      ui.reviewConfirm = { id: lid, rules: cur.filter((r) => r !== rule).concat(el.checked ? [rule] : []) };
+      return;
+    }
     const d = formDraft();
     if (!d) return;
     if (k === 'photo') {
