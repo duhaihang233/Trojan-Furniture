@@ -447,7 +447,7 @@
       ${l ? `<div class="rec-listing">
           <div class="row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><b>${money(l.sem)}/sem · ${esc(l.seller)}</b><span class="meta">${esc(hallById(l.hall).name)} · ${esc(hallById(l.hall).walk)}</span></span></div>
           <div class="row" style="gap:8px"><a class="btn btn-outline btn-small" style="flex:1" href="#/fit/${l.id}">See it in my room</a><a class="btn btn-cardinal btn-small" style="flex:1" href="#/item/${l.id}">View listing</a></div>
-          <a class="btn btn-gold" href="#/ar/${l.id}">Preview in AR</a>
+          ${arButton(l, 'Preview in AR')}
           <button type="button" class="link" data-action="browse-type" data-id="${esc(r.item)}" style="align-self:flex-start;padding:4px 0">Browse all ${esc(D.types[r.item].name.toLowerCase())}s →</button>
         </div>` : '<span class="meta">Nobody is renting this out on TroShare yet.</span>'}
     </div>`;
@@ -588,6 +588,28 @@
     return rec ? rec.placement : '';
   }
 
+  function onIPhone() {
+    return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+  function onAndroid() {
+    return /Android/i.test(navigator.userAgent);
+  }
+
+  // One tap opens the rear camera and puts the model on the floor.
+  // iPhone uses AR Quick Look. Android uses Scene Viewer. A computer has no phone camera, so it shows the model instead.
+  function arButton(l, label) {
+    const img = `<img src="${esc(imgOf(l))}" alt="">`;
+    if (onIPhone()) {
+      return `<a class="btn btn-gold ar-launch" rel="ar" href="models/${l.type}.usdz#allowsContentScaling=0">${img}${esc(label)}</a>`;
+    }
+    if (onAndroid()) {
+      const file = new URL('models/' + l.type + '.glb', location.href).href;
+      const scene = 'https://arvr.google.com/scene-viewer/1.0?mode=ar_preferred&disableScaling=true&file=' + encodeURIComponent(file) + '&title=' + encodeURIComponent(nameOf(l));
+      return `<a class="btn btn-gold ar-launch" href="${scene}">${img}${esc(label)}</a>`;
+    }
+    return `<a class="btn btn-gold" href="#/ar/${l.id}">${esc(label)}</a>`;
+  }
+
   function arScreen(id) {
     const l = findListing(id);
     if (!l) return `${topbar('Preview in AR', '#/room')}<p class="empty">This listing is gone.</p>`;
@@ -597,32 +619,18 @@
     const back = room.analysis ? '#/room' : '#/item/' + encodeURIComponent(id);
     const src = 'models/' + l.type;
     const spot = place
-      ? 'Suggested spot: ' + place.replace(/[. ]*$/, '') + '. Point the rear camera that way, then tap the floor circle to set it down.'
-      : 'Point the rear camera at the floor and tap the circle to set it down.';
+      ? 'Suggested spot: ' + place.replace(/[. ]*$/, '') + '. Aim the rear camera there. When a circle appears on the floor, tap it and the furniture sits down at real size.'
+      : 'Aim the rear camera at the floor. When a circle appears, tap it and the furniture sits down at real size.';
+    const phone = onIPhone() || onAndroid();
     return `${topbar('Preview in AR', back)}
     <section class="section">
       <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2>
-        <p class="sub" style="margin:6px 0 0">${esc(spot)} Drag the model to look at it first.</p></div>
-      <model-viewer class="ar-stage" id="ar-model" src="${src}.glb" ios-src="${src}.usdz" alt="${esc(nameOf(l))} in 3D, ${esc(size)}" camera-controls touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor" interaction-prompt="auto">
-        <button type="button" slot="ar-button" class="btn btn-gold ar-open">Open camera and place</button>
-      </model-viewer>
-      <p class="meta">This is a typical ${esc(typeOf(l).name)}, ${esc(size)}, not a scan of the seller's photo. On iPhone the camera opens in Safari over HTTPS. Here, drag to turn it.</p>
+        <p class="sub" style="margin:6px 0 0">${esc(spot)}</p></div>
+      ${phone ? arButton(l, 'Open camera and place on the floor') : `<model-viewer class="ar-stage" id="ar-model" src="${src}.glb" ios-src="${src}.usdz" alt="${esc(nameOf(l))} in 3D, ${esc(size)}" camera-controls touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>`}
+      <p class="meta">This is a typical ${esc(typeOf(l).name)}, ${esc(size)}, not a scan of the seller's photo. ${phone ? 'The camera is your phone’s rear camera. Move slowly so it can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page in Safari on your iPhone, then tap Preview in AR.'}</p>
       <div class="card pad row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
         ${l.owner === 'me' ? '' : `<button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>
     </section>`;
-  }
-
-  function setupAR() {
-    const mv = document.getElementById('ar-model');
-    const btn = mv && mv.querySelector('.ar-open');
-    if (!mv || !btn) return;
-    const sync = () => { btn.hidden = !mv.canActivateAR; };
-    const ready = customElements.whenDefined ? customElements.whenDefined('model-viewer') : Promise.resolve();
-    ready.then(() => {
-      mv.addEventListener('load', sync);
-      mv.addEventListener('ar-status', sync);
-      sync();
-    }).catch(() => {});
   }
 
   function resetFit(l, id) {
@@ -776,7 +784,6 @@
     app.innerHTML = html;
     renderTabbar(route);
     if (route === 'fit') setupFit();
-    if (route === 'ar') setupAR();
     if (location.hash !== lastHash) {
       lastHash = location.hash;
       if (route === 'chat') { const th = document.getElementById('thread'); if (th) th.lastElementChild && th.lastElementChild.scrollIntoView({ block: 'end' }); }
