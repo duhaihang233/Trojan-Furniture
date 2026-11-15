@@ -82,7 +82,7 @@ window.TS_DATA = (() => {
     .replace(/Tommy/g, first || 'there').replace(/Webb Tower lobby/g, (hallName || 'Webb Tower') + ' lobby'));
   const sampleTemplate = () => ({
     version: 1,
-    hall: 'webb',
+    hall: null,
     cat: 'all',
     cart: [],
     rentals: [

@@ -18,10 +18,11 @@
   function load() {
     try {
       const raw = localStorage.getItem(stateKey());
-      // Filters are per-visit: every launch opens on your own hall with All categories.
-      if (raw) { const s = JSON.parse(raw); if (s && s.version === 1) return { ...D.emptyState(), ...s, cat: 'all', hall: D.me.hall }; }
+      // Filters are per-visit: every launch opens on all halls and All categories, so listings from
+      // students in other buildings are never hidden behind the map filter.
+      if (raw) { const s = JSON.parse(raw); if (s && s.version === 1) return { ...D.emptyState(), ...s, cat: 'all', hall: null }; }
     } catch (e) { /* storage unavailable: fall back to fresh state */ }
-    return { ...D.emptyState(), hall: D.me.hall };
+    return D.emptyState();
   }
   function save() {
     try { localStorage.setItem(stateKey(), JSON.stringify(S)); }
@@ -519,7 +520,10 @@
     if (route === 'chat' && /^c[0-9a-f]{16}$/.test(id || '') && server.msgs[id]) fetchMessages(id).then((n) => { if (n && parse().id === id) refreshChat(false); });
   }, 4000);
   setInterval(() => { if (!document.hidden) refreshConvs(); }, 20000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshConvs(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (Date.now() - server.at > 60000) syncFromServer(); else refreshConvs();
+  });
 
   function accountScreen() {
     const statusBadge = (s) => s === 'Returned' ? 'gray' : (s === 'Rented' ? 'red' : '');
@@ -1167,7 +1171,7 @@
         }
         break;
       case 'reset':
-        if (window.confirm('Clear your rentals, cart and sample-seller chats on this device?')) { S = { ...D.emptyState(), hall: D.me.hall }; save(); location.hash = '#/home'; render(); toast('Activity cleared'); }
+        if (window.confirm('Clear your rentals, cart and sample-seller chats on this device?')) { S = D.emptyState(); save(); location.hash = '#/home'; render(); toast('Activity cleared'); }
         break;
       case 'logout':
         if (window.TS_INTRO) window.TS_INTRO.logout();
@@ -1243,7 +1247,7 @@
       btn.disabled = true;
       const firstTime = AUTH.needsSetup();
       AUTH.saveProfile({ year, hall })
-        .then(() => { applyUser(); S.hall = D.me.hall; save(); if (firstTime) location.hash = '#/home'; render(); toast(firstTime ? 'You are all set' : 'Profile saved'); })
+        .then(() => { applyUser(); if (firstTime) location.hash = '#/home'; render(); toast(firstTime ? 'You are all set' : 'Profile saved'); })
         .catch((err) => { btn.disabled = false; toast(err.message); });
       return;
     }
@@ -1358,11 +1362,9 @@
 
   // Fetches listings, favorites and the profile (which may have changed on another device), then redraws.
   function syncFromServer() {
-    const before = D.me.hall;
     return loadServer().then(() => {
       if (!AUTH.signedIn()) return;
       applyUser();
-      if (S.hall === before) { S.hall = D.me.hall; save(); }
       rerender();
     });
   }
