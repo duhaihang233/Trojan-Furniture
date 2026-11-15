@@ -511,6 +511,8 @@ model-viewer.ar-stage { display: block; width: 100%; height: 380px; background: 
 /* USC sign-in */
 .g-signin { min-height: 44px; display: flex; justify-content: center; }
 .intro-error { margin: 10px 0 0; color: var(--cardinal); font-size: 13px; font-weight: 600; line-height: 1.4; text-align: center; }
+.intro-retry { display: block; margin: 10px auto 0; }
+.intro-retry[hidden] { display: none; }
 #intro-wait { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 #intro-wait[hidden] { display: none; }
 .av-photo { object-fit: cover; padding: 0; background: var(--tile); }

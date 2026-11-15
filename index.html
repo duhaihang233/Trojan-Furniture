@@ -16,7 +16,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-  <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
 <body>
   <div class="stage">
@@ -63,6 +62,7 @@
                   <div class="g-signin" id="g-signin"></div>
                   <p class="intro-note">Only @usc.edu accounts can log in.</p>
                   <p class="intro-error" id="intro-error" role="alert" hidden></p>
+                  <button type="button" class="btn btn-outline btn-small intro-retry" id="intro-retry" hidden>Try again</button>
                 </div>
                 <div class="intro-step intro-card" id="intro-wait" role="status" hidden>
                   <span class="spinner" aria-hidden="true"></span>
