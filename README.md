@@ -15,8 +15,10 @@ Built for the USC **"Building for Trojans"** hackathon.
   then the red screen shrinks into the login header. Only verified @usc.edu Google accounts can log in.
 - **Real accounts** — your profile (class year, hall), listings, favorites and chats are saved on the
   TroShare server, so they follow you to any device you log in from.
-- **Interactive housing map** — tap a residence hall (Webb Tower, USC Village, New North, Pardee,
-  Gateway, Parkside) to see what students there are renting out, with walking times from your hall.
+- **Interactive housing map** — every USC residence (all 48 on USC Housing's list) can be your hall.
+  The map shows a pin for each hall that has listings, plus yours; tap one to see what students there are
+  renting out, with walking times from your hall. A few halls aren't on the map, so they have no pin and
+  show "Near campus".
 - **Browse & search on Home** — every other student's listings (yours are under My Account). Filter by category (lighting, cooling, seating, sleep, tech, storage),
   search by item, seller or hall, and sort by distance or price.
 - **Listings** — photos, semester and full-year prices, handoff options, and the seller's name,

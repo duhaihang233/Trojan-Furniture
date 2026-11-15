@@ -40,7 +40,9 @@
   /* ---------- helpers ---------- */
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = (n) => '$' + (Number.isInteger(n) ? n : n.toFixed(2));
-  const hallById = (id) => D.halls.find((h) => h.id === id);
+  // Old sample listings use halls that aren't on the list any more; they show as "USC housing".
+  const OTHER_HALL = { id: '', name: 'USC housing', code: '', short: 'USC', left: null, top: null, mins: 30, walk: 'Near campus', label: 'USC' };
+  const hallById = (id) => D.halls.find((h) => h.id === id) || { ...OTHER_HALL, id };
   const typeOf = (l) => D.types[l.type];
   const nameOf = (l) => l.title || typeOf(l).name;
   const imgOf = (l) => l.photo || typeOf(l).img;
@@ -64,9 +66,11 @@
     const home = hallById(D.me.hall);
     D.halls.forEach((h) => {
       h.home = h.id === home.id;
-      // ~0.24 minutes per map unit matches the walking times shown in the design.
-      h.mins = h.home ? 0 : Math.max(2, Math.round(Math.hypot(h.left - home.left, h.top - home.top) * 0.24));
-      h.walk = h.home ? 'Your hall' : `~${h.mins} min walk`;
+      // ~0.24 minutes per map unit matches the walking times shown in the design. A hall that isn't on
+      // the map (or a home that isn't) has no walking time; it sorts after the ones that do.
+      const known = h.left != null && home.left != null;
+      h.mins = h.home ? 0 : (known ? Math.max(2, Math.round(Math.hypot(h.left - home.left, h.top - home.top) * 0.24)) : 30);
+      h.walk = h.home ? 'Your hall' : (known ? `~${h.mins} min walk` : 'Near campus');
       h.label = h.home ? 'You · ' + h.short : h.short;
     });
   }
@@ -227,10 +231,32 @@
     if (now && now.getAttribute('href') !== prev) now.classList.add('pop');
   }
 
+  // Map pins: halls with listings, your hall and the one you picked. Most important first (yours, the
+  // picked one, then by number of listings); a pin that would cover one already placed shows only its count.
+  function mapPins(count) {
+    const halls = D.halls.filter((h) => h.left != null && (count(h.id) || h.home || S.hall === h.id));
+    const rank = (h) => (h.home ? 1e6 : 0) + (S.hall === h.id ? 1e5 : 0) + count(h.id);
+    halls.sort((a, b) => rank(b) - rank(a));
+    // Rough pin boxes in map percent: ~7px per character plus count and padding, on a ~430px-wide map;
+    // a pin is ~8% of the map's height, above its building (below it near the top edge).
+    const box = (h, dot) => {
+      const w = (dot ? 30 : 7 * h.label.length + (h.home ? 62 : 44)) / 4.3;
+      const y0 = h.top < 9 ? h.top : h.top - 8;
+      return { x0: h.left - w / 2, x1: h.left + w / 2, y0, y1: y0 + 8 };
+    };
+    const hit = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+    const placed = [];
+    return halls.map((h) => {
+      const dot = placed.some((b) => hit(box(h, false), b));
+      placed.push(box(h, dot));
+      return { h, dot };
+    });
+  }
+
   /* ---------- screens ---------- */
   function homeScreen() {
     const all = market();
-    const cur = S.hall ? hallById(S.hall) : null;
+    const cur = S.hall ? D.halls.find((h) => h.id === S.hall) || null : null;
     const count = (id) => all.filter((l) => l.hall === id).length;
     // Browse lives on Home: the map's hall, the category chips and the search box all narrow one list.
     let items = all.filter((l) => (!cur || l.hall === cur.id) && (S.cat === 'all' || catOf(l) === S.cat));
@@ -252,7 +278,7 @@
     </section>
     <div class="map">
       <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
-      ${D.halls.map((h) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${esc(h.label)}</button>`).join('')}
+      ${mapPins(count).map(({ h, dot }) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''} ${h.top < 9 ? 'below' : ''} ${dot ? 'dot' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${dot ? '' : esc(h.label)}</button>`).join('')}
     </div>
     <div class="map-pill"><span class="ico">${I.pin.replace('<svg', '<svg width="18" height="18"')}</span><span class="txt">${esc(pill)}</span>${cur ? '<button type="button" class="chip-btn" data-action="hall" data-id="">All halls</button>' : ''}</div>
     <section class="section" id="listings">
@@ -781,12 +807,14 @@
   function profileForm(submitLabel) {
     const saved = (AUTH.profile && AUTH.profile.hall) || '';
     const year = (AUTH.profile && AUTH.profile.year) || '';
-    const tile = (name, value, on, body) => `<label class="choice"><input type="radio" class="sr-only" name="${name}" value="${esc(value)}" ${on ? 'checked' : ''}>${body}<span class="ck">${I.check}</span></label>`;
+    const tile = (name, value, on, body, q) => `<label class="choice"${q ? ` data-q="${esc(q)}"` : ''}><input type="radio" class="sr-only" name="${name}" value="${esc(value)}" ${on ? 'checked' : ''}>${body}<span class="ck">${I.check}</span></label>`;
     return `<form class="card pad stack" data-form="profile">
       <fieldset class="pick"><legend class="label">Class year</legend>
         <div class="choice-grid">${YEARS.map((y) => tile('year', y, year === y, `<span class="t">${esc(y)}</span>`)).join('')}</div></fieldset>
       <fieldset class="pick"><legend class="label">Where you live</legend>
-        <div class="choice-grid">${D.halls.map((h) => tile('hall', h.id, saved === h.id, `<span class="t">${esc(h.name)}</span>`)).join('')}</div></fieldset>
+        <input class="input" type="search" placeholder="Search ${D.halls.length} residences, e.g. Webb or WTO" aria-label="Search residences" data-input="hall-q" autocomplete="off">
+        <div class="choice-list">${D.halls.map((h) => tile('hall', h.id, saved === h.id, `<span class="grow"><span class="t">${esc(h.name)}</span>${h.code ? `<span class="n">${esc(h.code)}</span>` : ''}</span>`, (h.name + ' ' + h.code + ' ' + h.short).toLowerCase())).join('')}</div>
+        <p class="meta" data-hall-none hidden>No residence matches that. Try part of the name or its code.</p></fieldset>
       <span class="meta">Sellers see your first name, last initial, class year and hall. Your email stays private.</span>
       <button type="submit" class="btn btn-cardinal">${esc(submitLabel)}</button>
     </form>`;
@@ -1588,6 +1616,13 @@
     if (k === 'fit-size') { fit.size = Number(el.value) / 100; applyFit(); return; }
     const fd = formDraft();
     if (k === 'rm-email') { ui.rmEmail = el.value; return; }
+    if (k === 'hall-q') { // filters the hall list in place, without redrawing the form
+      const q = el.value.trim().toLowerCase();
+      let shown = 0;
+      app.querySelectorAll('.choice[data-q]').forEach((c) => { c.hidden = !!q && !c.dataset.q.includes(q) && !c.querySelector('input').checked; if (!c.hidden) shown++; });
+      const none = app.querySelector('[data-hall-none]'); if (none) none.hidden = shown > 0;
+      return;
+    }
     if (fd && (k === 'title' || k === 'sem' || k === 'year1' || k === 'buy')) fd[k] = el.value;
   });
 

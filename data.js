@@ -1,13 +1,57 @@
 // TroShare built-in data: halls, item types, and sample listings that show how the marketplace works.
 // Real listings come from the TroShare server (see app.js loadServer).
 window.TS_DATA = (() => {
+  // Every USC residence (USC Housing's list). left/top: where its building is on images/map.jpg, in percent;
+  // null for the few that aren't on that map (no pin, and walking times to them aren't shown).
   const halls = [
-    { id: 'webb', name: 'Webb Tower', short: 'Webb', left: 29, top: 47 },
-    { id: 'village', name: 'USC Village', short: 'Village', left: 43, top: 31 },
-    { id: 'gateway', name: 'University Gateway', short: 'Gateway', left: 78, top: 38 },
-    { id: 'newnorth', name: 'New North', short: 'New North', left: 77, top: 53 },
-    { id: 'pardee', name: 'Pardee Tower', short: 'Pardee', left: 72, top: 66 },
-    { id: 'parkside', name: 'Parkside', short: 'Parkside', left: 36, top: 92 }
+    { id: 'annenberg', name: 'Annenberg House', code: 'ANH', short: 'Annenberg', left: null, top: null },
+    { id: 'belair', name: 'Bel-Air', code: 'BAA', short: 'Bel-Air', left: 32.1, top: 20.4 },
+    { id: 'birnkrant', name: 'Birnkrant Residential College', code: 'BSR', short: 'Birnkrant', left: 72.3, top: 57.3 },
+    { id: 'bohnett', name: 'Bohnett Residential College', code: 'UVE-NBC', short: 'Bohnett', left: 47.5, top: 39.3 },
+    { id: 'caleirani', name: 'Cale and Irani Residential College', code: 'UVS-CIC', short: 'Cale & Irani', left: 40.5, top: 42.7 },
+    { id: 'cng', name: "Cardinal 'N Gold", code: 'CNG', short: "Cardinal 'N Gold", left: 67.9, top: 17.1 },
+    { id: 'cargardens', name: 'Cardinal Gardens', code: 'CAR', short: 'Cardinal Gardens', left: 27.7, top: 40.9 },
+    { id: 'centennial', name: 'Centennial', code: 'CEN', short: 'Centennial', left: null, top: null },
+    { id: 'century', name: 'Century', code: 'CAP', short: 'Century', left: 9.6, top: 51.4 },
+    { id: 'cowlings', name: 'Cowlings Residential College', code: 'UVN-CRC', short: 'Cowlings', left: 41.5, top: 32.9 },
+    { id: 'currie', name: 'Currie Hall', code: '', short: 'Currie', left: null, top: null },
+    { id: 'fairmont', name: 'Fairmont', code: 'FMT', short: 'Fairmont', left: 35.6, top: 3.8 },
+    { id: 'founders', name: 'Founders', code: 'FSA', short: 'Founders', left: null, top: null },
+    { id: 'helena', name: 'Helena', code: 'HAP', short: 'Helena', left: 17.6, top: 20.5 },
+    { id: 'hillview', name: 'Hillview', code: 'HIL', short: 'Hillview', left: null, top: null },
+    { id: 'ilium', name: 'Ilium Residential College', code: 'UVN-CRC', short: 'Ilium', left: 43.2, top: 33.8 },
+    { id: 'sorbonne', name: 'La Sorbonne', code: 'LAB', short: 'La Sorbonne', left: 18.5, top: 45.5 },
+    { id: 'manor', name: 'Manor', code: 'MAB', short: 'Manor', left: 40.9, top: 4.2 },
+    { id: 'marks', name: 'Marks Tower', code: 'DMT', short: 'Marks', left: 79.0, top: 66.5 },
+    { id: 'maxkade', name: 'Max Kade House', code: 'GEX', short: 'Max Kade', left: 35.9, top: 8.1 },
+    { id: 'mccarthy', name: 'McCarthy Honors Residential College', code: 'UVF-MHC', short: 'McCarthy', left: 36.7, top: 37.7 },
+    { id: 'mcclintock', name: 'McClintock Apartments', code: 'MCO / MCK', short: 'McClintock', left: 29.8, top: 30.1 },
+    { id: 'mcmorrow', name: 'McMorrow Residential College', code: 'UVV-MRC', short: 'McMorrow', left: 47.8, top: 43.4 },
+    { id: 'nemirovsky', name: 'Nemirovsky Residential College', code: 'UVE-NBC', short: 'Nemirovsky', left: 49.0, top: 40.0 },
+    { id: 'newnorth', name: 'New North Residential College', code: 'COL-NEW / EVK-NEW / UNI-NRC / HRH-NRC', short: 'New North', left: 76.7, top: 54.5 },
+    { id: 'pacific', name: 'Pacific', code: 'PCA', short: 'Pacific', left: 45.1, top: 4.2 },
+    { id: 'pardee', name: 'Pardee Tower', code: 'PTD', short: 'Pardee', left: 75.4, top: 66.5 },
+    { id: 'parkside', name: 'Parkside Apartments', code: 'PKS', short: 'Parkside Apts', left: 36.3, top: 92.5 },
+    { id: 'parksidearts', name: 'Parkside Arts & Humanities Residential College', code: 'PRB', short: 'Parkside A&H', left: 38.8, top: 96.1 },
+    { id: 'parksideintl', name: 'Parkside International Residential College', code: 'IRC', short: 'Parkside Intl', left: 31.8, top: 97.0 },
+    { id: 'regaltrojan', name: 'Regal Trojan', code: 'RTA', short: 'Regal Trojan', left: null, top: null },
+    { id: 'regent', name: 'Regent', code: 'RGA', short: 'Regent', left: 29.3, top: 21.3 },
+    { id: 'senator', name: 'Senator', code: 'SNA', short: 'Senator', left: 29.5, top: 8.7 },
+    { id: 'sevengables', name: 'Seven Gables', code: 'SGA', short: 'Seven Gables', left: 78.7, top: 22.5 },
+    { id: 'severance', name: 'Severance Street Apartments', code: 'SSA', short: 'Severance', left: 49.2, top: 5.3 },
+    { id: 'sierra', name: 'Sierra', code: 'SIE', short: 'Sierra', left: 40.8, top: 6.0 },
+    { id: 'stardust', name: 'Stardust', code: 'SAI', short: 'Stardust', left: 74.8, top: 4.8 },
+    { id: 'sunset', name: 'Sunset', code: 'SUN', short: 'Sunset', left: 26.6, top: 23.3 },
+    { id: 'terrace', name: 'Terrace', code: 'TSA', short: 'Terrace', left: 11.8, top: 26.4 },
+    { id: 'troyeast', name: 'Troy East', code: 'TRE', short: 'Troy East', left: 60.8, top: 29.1 },
+    { id: 'troyhall', name: 'Troy Hall', code: 'TRH', short: 'Troy Hall', left: 56.8, top: 29.1 },
+    { id: 'troyland', name: 'Troyland', code: 'TAP', short: 'Troyland', left: null, top: null },
+    { id: 'twinpalms', name: 'Twin Palms', code: 'TPA', short: 'Twin Palms', left: 35.6, top: 5.7 },
+    { id: 'uregent', name: 'University Regent', code: 'URA', short: 'Univ. Regent', left: 11.5, top: 10.3 },
+    { id: 'veterans', name: "Veterans' Housing", code: 'ADX', short: "Veterans'", left: null, top: null },
+    { id: 'vista', name: 'Vista', code: 'VIS', short: 'Vista', left: 44.9, top: 6.3 },
+    { id: 'webb', name: 'Webb Tower', code: 'WTO', short: 'Webb', left: 29.0, top: 47.0 },
+    { id: 'windsor', name: 'Windsor', code: 'WIN', short: 'Windsor', left: 26.2, top: 9.4 }
   ];
 
   const types = {
@@ -58,10 +102,13 @@ window.TS_DATA = (() => {
     ['gateway', 'micro', 'Hana S.', 'Sophomore', 4.9, 3, 'Like new', 18, 'pickup'], ['parkside', 'micro', 'Diego M.', 'Senior', 4.6, 7, 'Good', 17, 'both']
   ];
 
-  const pickupSpots = {
-    webb: 'Webb Tower lobby', village: 'USC Village, Trader Joe’s entrance', gateway: 'University Gateway lobby',
-    newnorth: 'New North front desk', pardee: 'Pardee Tower lobby', parkside: 'Parkside dining entrance'
-  };
+  // Where a seller meets you for pickup: the hall's lobby unless it has a better-known spot.
+  const pickupSpots = Object.fromEntries(halls.map((h) => [h.id, h.name + ' lobby']));
+  Object.assign(pickupSpots, {
+    newnorth: 'New North front desk', parkside: 'Parkside dining entrance',
+    // Older sample listings were at these two places.
+    village: 'USC Village, Trader Joe’s entrance', gateway: 'University Gateway lobby'
+  });
 
   const listings = rows.map(([hall, type, seller, year, rating, rentals, condition, sem, handoff], i) => ({
     id: 'l' + (i + 1), hall, type, seller, year, rating, rentals, condition, sem,

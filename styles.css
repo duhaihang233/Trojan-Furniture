@@ -641,3 +641,16 @@ fieldset.pick legend { padding: 0; margin-bottom: 8px; }
 .rm-form .input { flex: 1; min-width: 0; }
 .rm-form .btn { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
 .rm-form .btn svg { width: 18px; height: 18px; }
+
+/* Residence list on the profile page (48 halls, searchable) */
+.choice-list { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; padding: 2px; margin: -2px; overscroll-behavior: contain; }
+.choice-list .choice { min-height: 50px; }
+.choice .grow { display: flex; flex-direction: column; min-width: 0; }
+.choice .n { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
+.choice[hidden] { display: none; }
+/* Pins near the top edge of the map hang below their building instead of above it. */
+.pin.below { transform: translate(-50%, 0); }
+.pin.below:active { transform: translate(-50%, 0) scale(.92); }
+/* A pin that would cover a more important one shows only its count. */
+.pin.dot { padding: 0 4px; gap: 0; min-height: 30px; }
+.pin.home, .pin.on { z-index: 2; }

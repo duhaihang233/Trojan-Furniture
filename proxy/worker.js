@@ -21,7 +21,58 @@ const ITEM_NAMES = {
   micro: 'Compact microwave', tv: '32″ HD TV', bean: 'Bean bag chair', lamp: 'LED desk lamp', floor: 'Floor lamp',
   fan: 'Quiet tower fan', topper: 'XL twin topper', cart: 'Storage cart',
 };
-const HALLS = new Set(['Webb Tower', 'USC Village', 'University Gateway', 'New North', 'Pardee Tower', 'Parkside']);
+// Every USC residence, by the id the app uses (same list as `halls` in data.js).
+const HALL_NAMES = {
+  annenberg: "Annenberg House",
+  belair: "Bel-Air",
+  birnkrant: "Birnkrant Residential College",
+  bohnett: "Bohnett Residential College",
+  caleirani: "Cale and Irani Residential College",
+  cng: "Cardinal 'N Gold",
+  cargardens: "Cardinal Gardens",
+  centennial: "Centennial",
+  century: "Century",
+  cowlings: "Cowlings Residential College",
+  currie: "Currie Hall",
+  fairmont: "Fairmont",
+  founders: "Founders",
+  helena: "Helena",
+  hillview: "Hillview",
+  ilium: "Ilium Residential College",
+  sorbonne: "La Sorbonne",
+  manor: "Manor",
+  marks: "Marks Tower",
+  maxkade: "Max Kade House",
+  mccarthy: "McCarthy Honors Residential College",
+  mcclintock: "McClintock Apartments",
+  mcmorrow: "McMorrow Residential College",
+  nemirovsky: "Nemirovsky Residential College",
+  newnorth: "New North Residential College",
+  pacific: "Pacific",
+  pardee: "Pardee Tower",
+  parkside: "Parkside Apartments",
+  parksidearts: "Parkside Arts & Humanities Residential College",
+  parksideintl: "Parkside International Residential College",
+  regaltrojan: "Regal Trojan",
+  regent: "Regent",
+  senator: "Senator",
+  sevengables: "Seven Gables",
+  severance: "Severance Street Apartments",
+  sierra: "Sierra",
+  stardust: "Stardust",
+  sunset: "Sunset",
+  terrace: "Terrace",
+  troyeast: "Troy East",
+  troyhall: "Troy Hall",
+  troyland: "Troyland",
+  twinpalms: "Twin Palms",
+  uregent: "University Regent",
+  veterans: "Veterans' Housing",
+  vista: "Vista",
+  webb: "Webb Tower",
+  windsor: "Windsor",
+};
+const HALLS = new Set(Object.values(HALL_NAMES));
 const MAX_PHOTOS = 5;
 const MAX_PHOTO_BASE64 = 4_000_000; // ~3 MB per photo; the app sends ~1568px JPEGs well under this
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
@@ -191,7 +242,7 @@ export default {
 const USC_DOMAIN = 'usc.edu';
 const SESSION_DAYS = 30;
 const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Graduate student'];
-const HALL_IDS = new Set(['webb', 'village', 'gateway', 'newnorth', 'pardee', 'parkside']);
+const HALL_IDS = new Set(Object.keys(HALL_NAMES));
 const GOOGLE_ISSUERS = new Set(['accounts.google.com', 'https://accounts.google.com']);
 
 class HttpError extends Error {
