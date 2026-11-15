@@ -109,9 +109,12 @@
     ];
     const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
     const n = unreadCount();
+    const prev = tabbar.querySelector('a.on')?.getAttribute('href');
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
       `<a href="${href}" class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''}>${icon}${label}${id === 'inbox' && n ? `<span class="dot" aria-label="${n} unread">${n}</span>` : ''}</a>`
     ).join('');
+    const now = tabbar.querySelector('a.on');
+    if (now && now.getAttribute('href') !== prev) now.classList.add('pop');
   }
 
   /* ---------- screens ---------- */

@@ -47,6 +47,52 @@ img { display: block; max-width: 100%; }
 .btn-dashed { min-height: 46px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1.5px dashed var(--cardinal); border-radius: 6px; color: var(--cardinal); font-weight: 700; font-size: 14px; background: transparent; text-decoration: none; width: 100%; }
 .link { background: none; border: none; color: var(--cardinal); font-weight: 700; font-size: 14px; padding: 10px 0; text-decoration: none; }
 
+/* One press language for every tappable control. Wide buttons settle in;
+   icon-sized ones shrink a little more. Map pins are separate because their
+   transform also positions them. */
+:root { --tap: .16s cubic-bezier(.2, .75, .2, 1); }
+.btn, .btn-dashed, .icon-btn, .opt, .pill, .chip, .chip-btn, .tabs2 button,
+.tabbar a, .send, .intro-google, .photo .fit-btn, .photo-slot.add, .photo-slot .x,
+.res, .slot-pick {
+  transition: transform var(--tap), background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow var(--tap), filter var(--tap);
+  touch-action: manipulation;
+}
+.btn:active:not(:disabled), .btn-dashed:active, .intro-google:active, .photo .fit-btn:active,
+.photo-slot.add:active, .res:active, .slot-pick:active { transform: scale(.97); }
+.btn-cardinal:active:not(:disabled), .send:active, .photo .fit-btn:active { filter: brightness(.92); }
+.btn-gold:active:not(:disabled) { filter: brightness(.95); }
+.btn-outline:active, .btn-dashed:active, .intro-google:active, .opt:active:not(:disabled):not(.on),
+.pill:active:not(.on), .chip:active:not(.on), .chip-btn:active, .tabs2 button:active:not(.on) { background: var(--gold-25); }
+.btn-outline-white:active { background: rgba(255, 255, 255, .16); }
+.pill.on:active, .chip.on:active, .tabs2 button.on:active { filter: brightness(.92); }
+.opt:active:not(:disabled), .pill:active, .chip:active, .chip-btn:active, .tabs2 button:active { transform: scale(.97); }
+.icon-btn:active, .send:active, .photo-slot .x:active, .tabbar a:active { transform: scale(.9); }
+.icon-btn:active { background: color-mix(in srgb, currentColor 14%, transparent); }
+.tabbar a.pop svg { animation: tab-pop .34s cubic-bezier(.2, .8, .2, 1); }
+@keyframes tab-pop { 0% { transform: translateY(3px) scale(.82); } 55% { transform: translateY(-2px) scale(1.08); } 100% { transform: none; } }
+.link, .wordmark { transition: opacity var(--tap); }
+.link:active, .wordmark:active { opacity: .5; }
+.pin { transition: transform var(--tap), background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow var(--tap); }
+.pin:active { transform: translate(-50%, -100%) scale(.92); }
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:disabled):not(:active), .btn-dashed:hover:not(:active), .intro-google:hover:not(:active),
+  .photo .fit-btn:hover:not(:active), .send:hover:not(:active), .res:hover:not(:active) { transform: translateY(-1px); }
+  .btn-cardinal:hover:not(:disabled):not(:active), .btn-gold:hover:not(:disabled):not(:active),
+  .send:hover:not(:active), .photo .fit-btn:hover:not(:active) { filter: brightness(1.06); }
+  .opt:hover:not(:disabled):not(:active), .pill:hover:not(:active), .chip:hover:not(:active),
+  .chip-btn:hover:not(:active), .tabs2 button:hover:not(.on):not(:active), .intro-google:hover:not(:active) { border-color: var(--cardinal); }
+  .pin:hover:not(:active) { transform: translate(-50%, -108%); box-shadow: 0 6px 16px rgba(0, 0, 0, .28); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn, .btn-dashed, .icon-btn, .opt, .pill, .chip, .chip-btn, .tabs2 button, .tabbar a, .send,
+  .intro-google, .photo .fit-btn, .photo-slot.add, .photo-slot .x, .res, .slot-pick, .pin, .link, .wordmark { transition: none; }
+  .tabbar a.pop svg { animation: none; }
+  .btn:active, .btn-dashed:active, .icon-btn:active, .opt:active, .pill:active, .chip:active, .chip-btn:active,
+  .tabs2 button:active, .tabbar a:active, .send:active, .intro-google:active, .photo .fit-btn:active,
+  .photo-slot.add:active, .photo-slot .x:active, .res:active, .slot-pick:active { transform: none; filter: none; }
+  .pin:active, .pin:hover { transform: translate(-50%, -100%); }
+}
+
 /* Map */
 .map { position: relative; background: #E9E6E1; margin-top: 5px; }
 .map img { width: 100%; height: auto; aspect-ratio: 1406 / 1436; }
