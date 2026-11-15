@@ -53,17 +53,42 @@
     }
   }
 
-  // Google's script loads asynchronously; wait for it (up to ~20 s) before drawing the button.
-  let tries = 0, initialized = false;
-  function renderGoogleButton() {
+  // Google's sign-in script (accounts.google.com/gsi/client). Loaded here rather than with a <script> tag
+  // so we can tell "blocked" (error event: blocker extension, or a network that blocks Google) from
+  // "slow", and retry without reloading the page.
+  const GSI = 'https://accounts.google.com/gsi/client';
+  let gsiLoad = null;
+  function loadGsi() {
+    if (window.google && window.google.accounts && window.google.accounts.id) return Promise.resolve();
+    if (gsiLoad) return gsiLoad;
+    gsiLoad = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = GSI; s.async = true;
+      const timer = setTimeout(() => fail('slow'), 20000);
+      const fail = (why) => { clearTimeout(timer); s.remove(); gsiLoad = null; reject(new Error(why)); };
+      s.onload = () => {
+        clearTimeout(timer);
+        if (window.google && window.google.accounts && window.google.accounts.id) resolve();
+        else fail('blocked'); // some blockers answer with an empty stub script
+      };
+      s.onerror = () => fail('blocked');
+      document.head.appendChild(s);
+    });
+    return gsiLoad;
+  }
+  const LOAD_ERRORS = {
+    blocked: "Google sign-in was blocked, so the button can't appear. Turn off ad or tracker blocking for this site (or try another browser), and if your network blocks Google, connect to a VPN. Then tap Try again.",
+    slow: "Google sign-in is taking too long to load. Check your connection, then tap Try again."
+  };
+  $('intro-retry').addEventListener('click', () => { $('intro-retry').hidden = true; showError(''); renderGoogleButton(); });
+
+  let initialized = false;
+  async function renderGoogleButton() {
     const box = $('g-signin');
     if (!AUTH.configured()) { showError("Sign-in isn't set up yet: add the Google client ID in config.js."); return; }
-    const gid = window.google && window.google.accounts && window.google.accounts.id;
-    if (!gid) {
-      if (++tries > 80) { showError("Couldn't load Google sign-in. Check your connection and reload the page."); return; }
-      setTimeout(renderGoogleButton, 250);
-      return;
-    }
+    try { await loadGsi(); }
+    catch (err) { showError(LOAD_ERRORS[err.message] || LOAD_ERRORS.slow); $('intro-retry').hidden = false; return; }
+    const gid = window.google.accounts.id;
     if (!initialized) {
       // hd narrows Google's account chooser to usc.edu accounts; the server enforces it either way.
       gid.initialize({ client_id: CFG.googleClientId, callback: onCredential, hd: 'usc.edu', auto_select: false, context: 'signin', ux_mode: 'popup', itp_support: true });
@@ -82,4 +107,5 @@
   let seen = false;
   try { seen = sessionStorage.getItem('ts-intro') === '1'; sessionStorage.setItem('ts-intro', '1'); } catch (e) { /* ignore */ }
   if (!(seen && AUTH.signedIn())) play();
+  if (!AUTH.signedIn() && AUTH.configured()) loadGsi().catch(() => { /* reported when the button is drawn */ });
 })();

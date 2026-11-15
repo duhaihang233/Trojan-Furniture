@@ -222,7 +222,8 @@
     const q = ui.q.trim().toLowerCase();
     let items = all.filter((l) => (!cur || l.hall === cur.id) && (S.cat === 'all' || catOf(l) === S.cat));
     if (q) items = items.filter((l) => (nameOf(l) + ' ' + l.seller + ' ' + hallById(l.hall).name).toLowerCase().includes(q));
-    items.sort(ui.sort === 'price' ? (a, b) => a.sem - b.sem : (a, b) => hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem);
+    const firstType = (l) => (l.type === 'micro' ? 0 : 1); // the microwave leads the list
+    items.sort(ui.sort === 'price' ? (a, b) => firstType(a) - firstType(b) || a.sem - b.sem : (a, b) => firstType(a) - firstType(b) || hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem);
     // One card per kind of item: keep the closest (or cheapest, when sorting by price) listing of each, and leave your own listings to My Account.
     const seenTypes = new Set();
     items = items.filter((l) => l.owner !== 'me' && !seenTypes.has(l.type) && seenTypes.add(l.type));
