@@ -102,7 +102,7 @@ export default {
       if (am && method === 'GET') return reply(200, await getArModel(env, am[1]));
       if (am && method === 'POST') return reply(200, { listing: await retryArModel(env, ctx, session, am[1], photoBase) });
       const lm = path.match(/^\/listings\/([A-Za-z0-9_-]{1,40})$/);
-      if (lm && method === 'PATCH') return reply(200, { listing: await updateListing(request, env, session, lm[1], photoBase) });
+      if (lm && method === 'PATCH') return reply(200, { listing: await updateListing(request, env, ctx, session, lm[1], photoBase) });
       if (lm && method === 'DELETE') { await deleteListing(env, session, lm[1]); return reply(200, { ok: true }); }
       const fm = path.match(/^\/favorites\/([A-Za-z0-9_-]{1,40})$/);
       if (fm && (method === 'PUT' || method === 'DELETE')) return reply(200, { favorites: await setFavorite(env, session.sub, fm[1], method === 'PUT') });
@@ -323,7 +323,7 @@ async function readJson(request, maxBytes) {
 /* ---------------- Listings, photos, favorites ---------------- */
 
 const TYPE_IDS = new Set(Object.keys(ITEM_NAMES));
-const CONDITIONS = ['New', 'Like new', 'Good', 'Fair'];
+const CONDITIONS = ['New', 'New, sealed', 'Like new', 'Good', 'Fair'];
 const HANDOFFS = ['both', 'drop', 'pickup'];
 const MAX_LISTING_PHOTOS = 4;
 const MAX_LISTING_PHOTO_BASE64 = 1_400_000; // ~1 MB; the app uploads ~640px JPEGs of about 60 KB
@@ -401,12 +401,7 @@ async function createListing(request, env, ctx, session, photoBase) {
 
   const photos = Array.isArray(input.photos) ? input.photos : [];
   if (photos.length > MAX_LISTING_PHOTOS) throw new HttpError(400, `Add up to ${MAX_LISTING_PHOTOS} photos.`);
-  const bytes = photos.map((p) => {
-    if (typeof p !== 'string' || p.length > MAX_LISTING_PHOTO_BASE64 || !BASE64.test(p)) throw new HttpError(400, 'Each photo must be a JPEG under 1 MB.');
-    const b = Uint8Array.from(atob(p), (c) => c.charCodeAt(0));
-    if (!(b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)) throw new HttpError(400, 'Each photo must be a JPEG under 1 MB.');
-    return b;
-  });
+  const bytes = photos.map(jpegBytes);
   // Counted only for valid listings, so fixing a form mistake never locks anyone out.
   if (env.LIMITER) {
     const { success } = await env.LIMITER.limit({ key: 'list:' + session.sub });
@@ -414,11 +409,7 @@ async function createListing(request, env, ctx, session, photoBase) {
   }
   if (bytes.length && !env.PHOTOS) throw new HttpError(500, 'Photo storage is not set up yet.');
   const keys = [];
-  for (const b of bytes) {
-    const key = crypto.randomUUID() + '.jpg';
-    await env.PHOTOS.put(key, b, { metadata: { type: 'image/jpeg', owner: session.sub } });
-    keys.push(key);
-  }
+  for (const b of bytes) keys.push(await storePhoto(env, session, b));
 
   const id = 'u' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const now = Date.now();
@@ -441,19 +432,69 @@ async function ownListing(env, session, id) {
   return row;
 }
 
-/** Edits your own listing: any of the listing fields, and status 'available' / 'paused'. Photos stay as they are. */
-async function updateListing(request, env, session, id, photoBase) {
-  const input = await readJson(request, 20_000);
+/** A base64 JPEG from the app, checked and decoded. */
+function jpegBytes(p) {
+  if (typeof p !== 'string' || p.length > MAX_LISTING_PHOTO_BASE64 || !BASE64.test(p)) throw new HttpError(400, 'Each photo must be a JPEG under 1 MB.');
+  const b = Uint8Array.from(atob(p), (c) => c.charCodeAt(0));
+  if (!(b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)) throw new HttpError(400, 'Each photo must be a JPEG under 1 MB.');
+  return b;
+}
+async function storePhoto(env, session, bytes) {
+  if (!env.PHOTOS) throw new HttpError(500, 'Photo storage is not set up yet.');
+  const key = crypto.randomUUID() + '.jpg';
+  await env.PHOTOS.put(key, bytes, { metadata: { type: 'image/jpeg', owner: session.sub } });
+  return key;
+}
+
+/**
+ * Edits your own listing: any of the listing fields, status 'available' / 'paused', and photos.
+ * `photos` is the new photo list in order: { key } keeps one of the listing's current photos and
+ * { data } (base64 JPEG) adds a new one; photos left out are deleted. If the photos change and the
+ * listing has an AI AR model, the model is rebuilt from the new photos.
+ */
+async function updateListing(request, env, ctx, session, id, photoBase) {
+  const input = await readJson(request, MAX_LISTING_PHOTOS * MAX_LISTING_PHOTO_BASE64 + 20_000);
   const row = await ownListing(env, session, id);
   const fields = cleanListingFields(input, true);
   if (input.status !== undefined) {
     if (!['available', 'paused'].includes(input.status)) throw new HttpError(400, 'Unknown listing status.');
     fields.status = input.status;
   }
+  const current = JSON.parse(row.photos || '[]');
+  let removed = [], photosChanged = false;
+  if (input.photos !== undefined) {
+    if (!Array.isArray(input.photos) || input.photos.length > MAX_LISTING_PHOTOS) throw new HttpError(400, `Add up to ${MAX_LISTING_PHOTOS} photos.`);
+    // Check everything before storing anything.
+    const plan = input.photos.map((p) => {
+      if (p && typeof p.key === 'string') {
+        if (!current.includes(p.key)) throw new HttpError(400, 'One of those photos is no longer on this listing. Reload and try again.');
+        return { key: p.key };
+      }
+      if (p && p.data !== undefined) return { bytes: jpegBytes(p.data) };
+      throw new HttpError(400, 'Each photo must be a JPEG under 1 MB.');
+    });
+    const keys = [];
+    for (const p of plan) keys.push(p.key || await storePhoto(env, session, p.bytes));
+    removed = current.filter((k) => !keys.includes(k));
+    photosChanged = JSON.stringify(keys) !== JSON.stringify(current);
+    if (photosChanged) fields.photos = JSON.stringify(keys);
+  }
   const cols = Object.keys(fields);
   if (cols.length) {
     await env.DB.prepare(`UPDATE listings SET ${cols.map((c) => c + ' = ?').join(', ')}, updated_at = ? WHERE id = ?`)
       .bind(...cols.map((c) => fields[c]), Date.now(), row.id).run();
+  }
+  if (removed.length && env.PHOTOS) await Promise.all(removed.map((k) => env.PHOTOS.delete(k)));
+  if (photosChanged) {
+    const ar = await env.DB.prepare('SELECT status FROM ar_models WHERE listing_id = ?').bind(id).first();
+    if (ar) {
+      const updated = await env.DB.prepare('SELECT * FROM listings WHERE id = ?').bind(id).first();
+      if (JSON.parse(updated.photos).length) {
+        try { await startArModel(env, ctx, session, updated); } catch { /* the owner can retry from the listing page */ }
+      } else {
+        await env.DB.prepare('DELETE FROM ar_models WHERE listing_id = ?').bind(id).run(); // no photos left to model
+      }
+    }
   }
   return getListing(env, session.sub, id, photoBase);
 }

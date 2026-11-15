@@ -196,7 +196,7 @@
       ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'Room Preview'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
-    const active = { browse: 'home', search: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
+    const active = { browse: 'home', search: 'home', item: 'home', checkout: 'home', edit: 'account', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
     const n = unreadCount();
     const prev = tabbar.querySelector('a.on')?.getAttribute('href');
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
@@ -348,6 +348,7 @@
         ${mine ? '' : `<button type="button" class="btn btn-outline btn-small" data-action="message" data-id="${esc(id)}">Message</button>`}
       </div>
       ${mine ? `<div class="callout">${I.shield}<span>${l.status === 'paused' ? '<b>Hidden.</b> Other students can’t see this listing until you show it again.' : 'This is your listing. It\'s visible to verified USC students. Manage it from <a href="#/account">My Account</a>.'}</span></div>
+      <button type="button" class="btn btn-cardinal btn-small" data-action="edit-listing" data-id="${esc(id)}">Edit listing</button>
       <div class="row" style="gap:8px">
         ${l.status === 'paused'
           ? `<button type="button" class="btn btn-cardinal btn-small" style="flex:1" data-action="resume" data-id="${esc(id)}">Show it again</button>`
@@ -403,9 +404,31 @@
 
   function sellScreen() {
     const d = ui.draft || (ui.draft = { photos: [], cat: 'seat', title: '', condition: 'Like new', sem: '', year1: '', drop: true, pick: true, sell: false });
+    return listingForm(d, null);
+  }
+
+  // Editing your own listing: the List form, filled in. ui.edit holds its draft (separate from a new
+  // listing you may be writing). Photos are server URLs for kept photos and data: URLs for new ones.
+  function editScreen(id) {
+    const l = findListing(id);
+    if (!l || l.owner !== 'me') return `${topbar('Edit listing', '#/account')}<p class="empty">${!l && !server.loaded ? 'Loading…' : 'You can only edit your own listings.'}</p>`;
+    if (!ui.edit || ui.edit.id !== id) {
+      ui.edit = {
+        id, back: ui.editBack || '#/item/' + id, photos: (l.photos || []).slice(), cat: catOf(l), title: l.title || nameOf(l),
+        condition: l.condition, sem: String(l.sem), year1: String(l.year1), drop: l.handoff !== 'pickup', pick: l.handoff !== 'drop', sell: !!l.openToSell
+      };
+    }
+    return listingForm(ui.edit, l);
+  }
+  // The draft the List/Edit form controls change.
+  const formDraft = () => (parse().route === 'edit' ? ui.edit : ui.draft);
+  const photosChanged = (d, l) => JSON.stringify(d.photos) !== JSON.stringify(l.photos || []);
+
+  function listingForm(d, editing) {
     const conds = ['New', 'Like new', 'Good'];
-    return `${topbar('List an item')}
-    <form class="section" data-form="sell" novalidate>
+    if (!conds.includes(d.condition)) conds.unshift(d.condition); // e.g. "New, sealed" on older listings
+    return `${topbar(editing ? 'Edit listing' : 'List an item', editing ? d.back : undefined)}
+    <form class="section" data-form="${editing ? 'edit' : 'sell'}" novalidate>
       <div class="field"><span class="label">Photos</span>
         <div class="photos">
           ${d.photos.map((p, i) => `<div class="photo-slot"><img src="${p}" alt="Photo ${i + 1}"><button type="button" class="x" data-action="rm-photo" data-id="${i}" aria-label="Remove photo ${i + 1}">✕</button></div>`).join('')}
@@ -413,12 +436,12 @@
         </div>
         <span class="meta">Up to ${MAX_LISTING_PHOTOS} photos of the actual item. No photo? We'll show a stock picture.</span>
       </div>
-      <div class="field">
+      ${editing ? (editing.ar && photosChanged(d, editing) ? `<div class="callout">${I.sparkle}<span>${d.photos.length ? 'Your AR model will be rebuilt from the new photos when you save.' : 'With no photos, the AR model will be removed when you save.'}</span></div>` : '') : `<div class="field">
         <button type="button" class="btn ${d.ar && d.photos.length ? 'btn-cardinal' : 'btn-outline'} ar-gen" data-action="ar-toggle" aria-pressed="${!!(d.ar && d.photos.length)}" ${d.photos.length ? '' : 'disabled'}>${I.sparkle}AI Generate AR model${d.ar && d.photos.length ? ' · On' : ''}</button>
         <span class="meta">${!d.photos.length ? 'Add a photo first. Claude builds the AR model from your photos.'
           : d.ar ? "After you publish, Claude builds a 3D model from your photos in the background, usually in about a minute. You don't have to wait: the listing goes live right away and shows the model's progress."
           : 'Let Claude turn your photos into a 3D model, so students can place your item in their room with AR.'}</span>
-      </div>
+      </div>`}
       <div class="field"><span class="label">Category</span>
         <div class="chips" role="radiogroup" aria-label="Category">${D.categories.filter((c) => c.id !== 'all').map((c) => `<button type="button" role="radio" class="chip ${d.cat === c.id ? 'on' : ''}" aria-checked="${d.cat === c.id}" data-action="sell-cat" data-id="${c.id}">${esc(c.label)}</button>`).join('')}</div></div>
       <div class="field"><label for="f-title">Title</label><input id="f-title" class="input" data-input="title" value="${esc(d.title)}" maxlength="40" placeholder="${esc(TITLE_EXAMPLES[d.cat] || 'What are you renting out?')}"></div>
@@ -433,8 +456,9 @@
         <label class="check"><input type="checkbox" data-input="drop" ${d.drop ? 'checked' : ''}>I'll drop it off at their hall</label>
         <label class="check"><input type="checkbox" data-input="pick" ${d.pick ? 'checked' : ''}>They pick up at my spot</label></div>
       <label class="switch-row"><span><span style="font-weight:600;display:block">Also open to selling</span><span class="meta">Renters can make an offer to keep it</span></span><input type="checkbox" data-input="sell" ${d.sell ? 'checked' : ''}></label>
-      <button type="submit" class="btn btn-cardinal" ${d.busy ? 'disabled' : ''}>${d.busy ? 'Publishing…' : 'Publish listing'}</button>
-      <span class="note">Only signed-in USC students can see your listing. You can hide or delete it any time from My Account.</span>
+      <button type="submit" class="btn btn-cardinal" ${d.busy ? 'disabled' : ''}>${editing ? (d.busy ? 'Saving…' : 'Save changes') : (d.busy ? 'Publishing…' : 'Publish listing')}</button>
+      ${editing ? `<a class="btn btn-outline" href="${esc(d.back)}">Cancel</a>
+      <span class="note">Changes show to other students right away.</span>` : '<span class="note">Only signed-in USC students can see your listing. You can hide or delete it any time from My Account.</span>'}
     </form>`;
   }
   function priceHint(cat) {
@@ -650,7 +674,7 @@
       return `<a class="list-row" href="${r.thread ? '#/chat/' + r.thread : '#/item/' + l.id}"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">From ${esc(l.seller)} · ${r.plan === 'sem' ? '1 Semester' : 'Full year'} · ${money(r.price)}${r.split ? ' (split)' : ''}</span><span class="meta">${esc(r.when)}</span></span><span class="badge ${statusBadge(r.status)}">${esc(r.status)}</span></a>`;
     }).join('');
     const mine = myListings();
-    const mineRows = mine.map((m) => `<a class="list-row" href="#/item/${esc(m.id)}" style="text-decoration:none;color:inherit"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">Listed · ${money(m.sem)} per semester</span><span class="meta">${esc(m.condition)} · ${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span><span class="badge ${m.status === 'paused' ? 'gray' : ''}">${m.status === 'paused' ? 'Hidden' : 'Available'}</span></a>`).join('');
+    const mineRows = mine.map((m) => `<div class="list-row"><a class="row grow" href="#/item/${esc(m.id)}" style="flex-direction:row;align-items:center;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">${money(m.sem)} per semester · <span class="badge ${m.status === 'paused' ? 'gray' : ''}" style="font-size:11px">${m.status === 'paused' ? 'Hidden' : 'Available'}</span></span><span class="meta">${esc(m.condition)} · ${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span></a><button type="button" class="btn btn-outline btn-small" data-action="edit-listing" data-id="${esc(m.id)}" aria-label="Edit ${esc(nameOf(m))}">Edit</button></div>`).join('');
     const viewed = S.viewed.map(findListing).filter(Boolean);
     const favs = server.favorites.map(findListing).filter(Boolean);
     const avatar = D.me.picture
@@ -1153,6 +1177,7 @@
       case 'item': html = itemScreen(id); break;
       case 'checkout': html = checkoutScreen(); break;
       case 'sell': html = sellScreen(); break;
+      case 'edit': html = editScreen(id); break;
       case 'inbox': html = inboxScreen(); break;
       case 'chat': html = chatScreen(id); break;
       case 'account': html = accountScreen(); break;
@@ -1329,7 +1354,7 @@
       case 'retry-load': loadServer().then(rerender); rerender(); break;
       case 'room-tab': ui.roomTab = id; rerender(); break;
       case 'ar-pick': ui.arType = id; rerender(); break;
-      case 'sell-cat': ui.draft.cat = id; rerender(); break; // same categories as the Home chips
+      case 'sell-cat': formDraft().cat = id; rerender(); break; // same categories as the Home chips
       case 'ar-desk': toast('Open TroShare on your iPhone to use the camera'); break;
       case 'residence': { const f = app.querySelector('[data-form=profile]'); if (f) f.scrollIntoView({ behavior: 'smooth' }); break; }
       case 'sample-data':
@@ -1366,8 +1391,9 @@
         save(); location.hash = '#/checkout'; toast(nameOf(l) + ' added'); break;
       }
       case 'browse-type': ui.q = D.types[id].name; ui.searchFrom = location.hash; S.cat = 'all'; save(); location.hash = '#/search'; break;
-      case 'cond': ui.draft.condition = id; rerender(); break;
-      case 'rm-photo': ui.draft.photos.splice(Number(id), 1); rerender(); break;
+      case 'cond': formDraft().condition = id; rerender(); break;
+      case 'rm-photo': formDraft().photos.splice(Number(id), 1); rerender(); break;
+      case 'edit-listing': ui.edit = null; ui.editBack = location.hash || '#/account'; location.hash = '#/edit/' + encodeURIComponent(id); break;
       case 'ar-toggle': ui.draft.ar = !ui.draft.ar; rerender(); break;
       case 'ar-start':
         el.disabled = true;
@@ -1392,7 +1418,7 @@
     if (el.dataset.action === 'split-cart') { ui.splitCart = el.checked; rerender(); return; }
     if (k === 'sort') { ui.sort = el.value; rerender(); return; }
     if (k === 'room-photo') { addRoomFiles(el.files); return; }
-    const d = ui.draft;
+    const d = formDraft();
     if (!d) return;
     if (k === 'photo') {
       const f = el.files && el.files[0];
@@ -1412,7 +1438,8 @@
       return;
     }
     if (k === 'fit-size') { fit.size = Number(el.value) / 100; applyFit(); return; }
-    if (ui.draft && (k === 'title' || k === 'sem' || k === 'year1')) ui.draft[k] = el.value;
+    const fd = formDraft();
+    if (fd && (k === 'title' || k === 'sem' || k === 'year1')) fd[k] = el.value;
   });
 
   // Return / the blue Search key saves the search and closes the keyboard.
@@ -1452,6 +1479,34 @@
       scrollThreadEnd();
       const n = app.querySelector('#msg'); n && n.focus();
       autoReply(t.id);
+      return;
+    }
+    if (f.dataset.form === 'edit') {
+      const d = ui.edit, l = findListing(d.id);
+      if (!l) return toast('This listing is gone');
+      const title = d.title.trim(), sem = Math.round(Number(d.sem)), yr = Math.round(Number(d.year1)) || Math.round(sem * 1.8);
+      if (!title) return toast('Add a title');
+      if (!(sem > 0)) return toast('Add a price per semester');
+      if (!d.drop && !d.pick) return toast('Choose at least one handoff option');
+      if (d.busy) return;
+      // Only what changed, so untouched fields (like an older "New, sealed" condition) stay as they are.
+      const patch = {};
+      if (title !== l.title) patch.title = title;
+      const type = d.cat !== catOf(l) || title !== l.title ? typeFor(d.cat, title) : l.type;
+      if (type !== l.type) patch.type = type;
+      if (d.condition !== l.condition) patch.condition = d.condition;
+      if (sem !== l.sem) patch.sem = sem;
+      if (yr !== l.year1) patch.year1 = yr;
+      const handoff = d.drop && d.pick ? 'both' : (d.drop ? 'drop' : 'pickup');
+      if (handoff !== l.handoff) patch.handoff = handoff;
+      if (!!d.sell !== !!l.openToSell) patch.openToSell = !!d.sell;
+      if (photosChanged(d, l)) patch.photos = d.photos.map((u) => (u.startsWith('data:') ? { data: u.split(',')[1] } : { key: u.split('/').pop() }));
+      const back = d.back;
+      if (!Object.keys(patch).length) { ui.edit = null; location.hash = back; return toast('No changes'); }
+      d.busy = true; rerender();
+      AUTH.call('/listings/' + encodeURIComponent(d.id), { method: 'PATCH', body: JSON.stringify(patch) })
+        .then((r) => { putListing(r.listing); ui.edit = null; toast(patch.photos && r.listing.ar && r.listing.ar.status === 'in_progress' ? 'Saved. Rebuilding your AR model…' : 'Saved'); location.hash = back; })
+        .catch((err) => { d.busy = false; rerender(); toast(err.message); });
       return;
     }
     if (f.dataset.form === 'sell') {

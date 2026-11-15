@@ -29,7 +29,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | `PUT /me/profile` | Saves your class year and hall |
 | `GET /listings` | Everyone's available listings, plus all of yours |
 | `POST /listings` | Publishes a listing (photos sent as base64 JPEG) |
-| `PATCH /listings/:id` | Edits your listing, or hides/shows it (`status: "paused"` / `"available"`) |
+| `PATCH /listings/:id` | Edits your listing: any field, or `photos` as the new list in order (`{ key }` keeps a photo, `{ data }` adds a base64 JPEG). Changing photos rebuilds an AI AR model. Also hides/shows it (`status: "paused"` / `"available"`) |
 | `DELETE /listings/:id` | Deletes your listing and its photos |
 | `PUT` / `DELETE /favorites/:id` | Saves or unsaves a listing |
 | `GET /conversations` | Your chats, with the latest message and unread count |
