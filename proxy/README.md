@@ -3,7 +3,7 @@
 TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It does three jobs:
 
 1. **USC sign-in.** It accepts only verified `@usc.edu` Google accounts and then issues a TroShare session token.
-2. **Student data.** It stores profiles, listings and favorites, so each student's account works on any device.
+2. **Student data.** It stores profiles, listings, favorites and chats, so each student's account works on any device.
 3. **AI room planner.** It calls Claude with TroShare's Anthropic API key. Visitors never need a key, and the key never reaches the browser or this repository.
 
 - **Live URL:** `https://troshare-room-proxy.thomas-haihang-du.workers.dev`
@@ -12,11 +12,11 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 
   | What | Where |
   |---|---|
-  | Students, listings, favorites | D1 database `troshare-db` (tables in [schema.sql](schema.sql)) |
+  | Students, listings, favorites, chats | D1 database `troshare-db` (tables in [schema.sql](schema.sql)) |
   | Listing photos (JPEG) | KV namespace `PHOTOS` |
   | Profiles from before the database existed | KV namespace `PROFILES`, copied into D1 the first time each student shows up |
 
-- **Limits per student:** 20 listings with up to 4 photos each (about 1 MB per photo); 5 new listings and 5 room analyses per minute.
+- **Limits per student:** 20 listings with up to 4 photos each (about 1 MB per photo); 5 new listings, 30 chat messages and 5 room analyses per minute.
 - **AI room planner:** the Worker builds the whole Claude request itself (model `claude-opus-5-5`, prompt, JSON schema), so the key can't be used for anything else. It costs about $0.04 per analysis.
 
 ## Endpoints
@@ -31,6 +31,10 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | `PATCH /listings/:id` | Edits your listing, or hides/shows it (`status: "paused"` / `"available"`) |
 | `DELETE /listings/:id` | Deletes your listing and its photos |
 | `PUT` / `DELETE /favorites/:id` | Saves or unsaves a listing |
+| `GET /conversations` | Your chats, with the latest message and unread count |
+| `POST /conversations` | Opens (or reopens) the chat with a listing's owner |
+| `GET /conversations/:id/messages?after=N` | Messages newer than `N` (the app polls every 4 s); marks them read |
+| `POST /conversations/:id/messages` | Sends a message, or a renter event (`rent`, `confirm`) the server words itself |
 | `GET /photos/:key` | Listing photo (public, cached for a year) |
 | `POST /analyze-room` | AI room recommendations |
 

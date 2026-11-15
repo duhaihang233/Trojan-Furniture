@@ -43,3 +43,34 @@ CREATE TABLE IF NOT EXISTS favorites (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (sub, listing_id)
 );
+
+-- Real chats between two students about one listing (one conversation per listing and buyer).
+-- The listing's title, type, first photo and price are copied in so the chat still makes sense
+-- after the listing is edited or deleted.
+CREATE TABLE IF NOT EXISTS conversations (
+  id            TEXT PRIMARY KEY,
+  listing_id    TEXT NOT NULL,
+  buyer         TEXT NOT NULL REFERENCES users(sub),
+  seller        TEXT NOT NULL REFERENCES users(sub),
+  listing_title TEXT NOT NULL,
+  listing_type  TEXT NOT NULL,
+  listing_photo TEXT NOT NULL DEFAULT '',  -- photo key in PHOTOS, or '' for the stock picture
+  listing_sem   INTEGER NOT NULL,
+  created_at    INTEGER NOT NULL,
+  last_at       INTEGER NOT NULL,
+  buyer_read    INTEGER NOT NULL DEFAULT 0, -- id of the last message the buyer has seen
+  seller_read   INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (listing_id, buyer)
+);
+CREATE INDEX IF NOT EXISTS conversations_buyer ON conversations(buyer, last_at);
+CREATE INDEX IF NOT EXISTS conversations_seller ON conversations(seller, last_at);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  conv_id    TEXT NOT NULL,
+  sender     TEXT NOT NULL,
+  kind       TEXT NOT NULL DEFAULT 'text', -- 'text', or 'sys' for events like a rental request
+  text       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_conv ON messages(conv_id, id);

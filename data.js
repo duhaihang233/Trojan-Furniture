@@ -71,8 +71,39 @@ window.TS_DATA = (() => {
   // The signed-in student. Filled in from their USC Google account and profile (see app.js applyUser).
   const me = { name: '', first: '', initial: '', email: '', picture: '', year: '', hall: 'webb', since: null };
 
-  // Per-device view settings for a signed-in student (everything else is on the server).
-  const emptyState = () => ({ version: 1, hall: null, cat: 'all', viewed: [] });
+  const findId = (seller, type) => listings.find((l) => l.seller === seller && l.type === type).id;
 
-  return { halls, types, categories, listings, pickupSpots, me, emptyState };
+  // Per-device state for a signed-in student: view settings, and the simulated cart, rentals and
+  // chats with sample sellers. (Listings, favorites and chats with real students are on the server.)
+  const emptyState = () => ({ version: 1, hall: null, cat: 'all', cart: [], rentals: [], threads: [], viewed: [] });
+
+  // Optional sample activity for demos (Account → Load sample activity), addressed to the signed-in student.
+  const sampleState = (first, hallName) => JSON.parse(JSON.stringify(sampleTemplate())
+    .replace(/Tommy/g, first || 'there').replace(/Webb Tower lobby/g, (hallName || 'Webb Tower') + ' lobby'));
+  const sampleTemplate = () => ({
+    version: 1,
+    hall: 'webb',
+    cat: 'all',
+    cart: [],
+    rentals: [
+      { id: 'r1', listingId: findId('Maya K.', 'bean'), plan: 'sem', price: 27, handoff: 'drop', split: false, status: 'Scheduled', when: 'Move-in day · 2 PM', where: 'Webb Tower lobby', thread: 't1' },
+      { id: 'r2', listingId: findId('Alex T.', 'lamp'), plan: 'sem', price: 12, handoff: 'pick', split: false, status: 'Active', when: 'Aug 20 – Dec 15, 2026', where: 'USC Village, Trader Joe’s entrance', thread: 't2' },
+      { id: 'r3', listingId: findId('Jordan L.', 'fan'), plan: 'sem', price: 15, handoff: 'drop', split: false, status: 'Returned', when: 'Jan 8 – May 10, 2026', where: 'Webb Tower lobby', thread: null }
+    ],
+    threads: [
+      { id: 't1', with: 'Maya K.', year: 'Junior', rentalId: 'r1', role: 'renting', unread: 1, msgs: [
+        { from: 'them', text: 'Hey Tommy, thanks for renting! I lived in Webb Tower last year, it fits great by the window.' },
+        { from: 'me', text: 'Yay! My check-in is at 1, how do you want to do the handoff?' },
+        { from: 'them', text: "I'll drop it off at your lobby at 2. I'll text here when I'm there. Fight On!" }
+      ] },
+      { id: 't2', with: 'Alex T.', year: 'Junior', rentalId: 'r2', role: 'renting', unread: 0, msgs: [
+        { from: 'them', text: "Hi! I only do pickup, I'm at the Village." },
+        { from: 'me', text: 'No problem, I can grab it Saturday afternoon.' },
+        { from: 'them', text: 'Pickup at the Village works anytime that weekend.' }
+      ] }
+    ],
+    viewed: [findId('Chris W.', 'tv'), findId('Liam K.', 'floor'), findId('Ava L.', 'topper'), findId('Mia S.', 'cart')]
+  });
+
+  return { halls, types, categories, listings, pickupSpots, me, emptyState, sampleState };
 })();
