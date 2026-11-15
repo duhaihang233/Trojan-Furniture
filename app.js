@@ -88,7 +88,7 @@
     if (i >= 0) server.listings[i] = l; else server.listings.unshift(l);
     return l;
   }
-  // Loads everyone's listings plus your profile and favorites. Errors show on Home with a retry button.
+  // Loads everyone's listings plus your profile and favorites. If it fails, it quietly tries again later.
   async function loadServer() {
     if (!AUTH.signedIn() || server.loading) return;
     server.loading = true; server.error = null;
@@ -100,10 +100,16 @@
       server.loaded = true; server.at = Date.now();
     } catch (err) {
       server.error = err.message;
+      clearTimeout(server.retry);
+      server.retry = setTimeout(() => { if (server.error) loadServer().then(() => { if (server.loaded) rerender(); }); }, 20000);
     } finally {
       server.loading = false;
     }
   }
+  // Back online, or back in the app after switching away: try again if the last load failed.
+  const retryQuietly = () => { if (server.error && !server.loading) loadServer().then(() => { if (server.loaded) rerender(); }); };
+  window.addEventListener('online', retryQuietly);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) retryQuietly(); });
   // Real listings first, then the built-in samples that show how TroShare works.
   function market() {
     return server.listings.filter((l) => l.status === 'available').concat(D.listings);
@@ -149,7 +155,7 @@
   /* ---------- shared pieces ---------- */
   function topbar(title, backHref) {
     if (!title) {
-      return `<header class="topbar"><span class="spacer44"></span><a class="wordmark" href="#/home">TROSHARE</a><button type="button" class="icon-btn" data-action="search" aria-label="Search listings">${I.search}</button></header>`;
+      return `<header class="topbar"><span class="spacer44"></span><a class="wordmark" href="#/home">TROSHARE</a><span class="spacer44"></span></header>`;
     }
     return `<header class="topbar">${backHref ? `<a class="icon-btn" href="${backHref}" data-action="back" aria-label="Back">${I.back}</a>` : '<span class="spacer44"></span>'}<h1>${esc(title)}</h1><span class="spacer44"></span></header>`;
   }
@@ -173,7 +179,7 @@
       ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'Room Preview'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
-    const active = { browse: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
+    const active = { browse: 'home', search: 'home', item: 'home', checkout: 'home', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
     const n = unreadCount();
     const prev = tabbar.querySelector('a.on')?.getAttribute('href');
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
@@ -189,9 +195,7 @@
     const cur = S.hall ? hallById(S.hall) : null;
     const count = (id) => all.filter((l) => l.hall === id).length;
     // Browse lives on Home: the map's hall, the category chips and the search box all narrow one list.
-    const q = ui.q.trim().toLowerCase();
     let items = all.filter((l) => (!cur || l.hall === cur.id) && (S.cat === 'all' || catOf(l) === S.cat));
-    if (q) items = items.filter((l) => (nameOf(l) + ' ' + l.seller + ' ' + hallById(l.hall).name).toLowerCase().includes(q));
     const firstType = (l) => (l.type === 'micro' ? 0 : 1); // the microwave leads the samples
     const order = ui.sort === 'price' ? (a, b) => firstType(a) - firstType(b) || a.sem - b.sem : (a, b) => firstType(a) - firstType(b) || hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem;
     // Every real listing from other students comes first (your own are in My Account). Samples fill in
@@ -204,19 +208,27 @@
     const pill = cur ? (cur.home ? `${n} listings in your building` : `${n} listings at ${cur.name} · ${cur.walk}`) : 'Tap a hall to see what Trojans there are renting out';
     const next = S.rentals.find((r) => r.status === 'Scheduled');
     const nl = next && findListing(next.listingId);
-    const status = server.error
-      ? `<div class="callout" role="alert">${I.shield}<span>Couldn't load students' listings: ${esc(server.error)} <button type="button" class="link" data-action="retry-load">Try again</button></span></div>`
-      : (!server.loaded ? '<span class="meta">Loading listings from other students…</span>' : '');
+    // No error banner: the sample listings always show, and students' listings are retried quietly in the background.
+    const status = '';
 
     return `${topbar()}
+    <section class="hero">
+      <p class="eyebrow">Student-to-student rentals</p>
+      <h2 class="hero-title">TroShare</h2>
+    </section>
+    <div class="map">
+      <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
+      ${D.halls.map((h) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${esc(h.label)}</button>`).join('')}
+    </div>
+    <div class="map-pill"><span class="ico">${I.pin.replace('<svg', '<svg width="18" height="18"')}</span><span class="txt">${esc(pill)}</span>${cur ? '<button type="button" class="chip-btn" data-action="hall" data-id="">All halls</button>' : ''}</div>
     <section class="section" id="listings">
       <div class="section-head"><h2>${esc(title)}</h2><span class="sub">${items.length} item${items.length === 1 ? '' : 's'}</span></div>
       ${status}
-      <label class="search"><span class="sr-only">Search listings</span>${I.search}<input type="search" placeholder="Lamps, fans, bean bags…" value="${esc(ui.q)}" data-input="q" autocomplete="off"></label>
+      <a class="search" href="#/search" data-action="search" aria-label="Search listings">${I.search}<span class="search-ph">Lamps, fans, bean bags…</span></a>
       <div class="chips" role="group" aria-label="Category">${D.categories.map((c) => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-action="cat" data-id="${c.id}" aria-pressed="${S.cat === c.id}">${c.label}</button>`).join('')}</div>
-      <div class="section-head"><span class="sub">${cur ? 'Only ' + esc(cur.name) + ' · tap “All halls” on the map below for everything' : 'From USC students across campus'}</span>
+      <div class="section-head"><span class="sub">${cur ? 'Only ' + esc(cur.name) + ' · tap “All halls” on the map above for everything' : 'From USC students across campus'}</span>
         <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
-      ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : `<p class="empty">${q ? 'No listings match. Try another search.' : 'Nothing here yet. Try another hall on the map.'}</p>`}
+      ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : '<p class="empty">Nothing here yet. Try another hall on the map.</p>'}
     </section>
     ${nl ? `<section class="section">
       <div class="section-head"><h2>Next handoff</h2><a class="link" href="#/chat/${next.thread}">Chat →</a></div>
@@ -225,16 +237,47 @@
         <span class="grow"><span class="t-serif">${esc(nameOf(nl))}</span><span class="meta">From ${esc(nl.seller)} · ${next.handoff === 'drop' ? 'Delivered' : 'Pickup'}</span><span class="meta">${esc(next.when)} · ${esc(next.where)}</span></span>
         <span class="badge">${esc(next.status)}</span>
       </a></section>` : ''}
-    <div class="map">
-      <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
-      ${D.halls.map((h) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${esc(h.label)}</button>`).join('')}
-    </div>
-    <div class="map-pill"><span class="ico">${I.pin.replace('<svg', '<svg width="18" height="18"')}</span><span class="txt">${esc(pill)}</span>${cur ? '<button type="button" class="chip-btn" data-action="hall" data-id="">All halls</button>' : ''}</div>
-    <section class="hero">
-      <p class="eyebrow">Student-to-student rentals</p>
-      <h2 class="hero-title">TroShare</h2>
-    </section>
     <p class="footer">A peer-to-peer marketplace for USC students.<br>Rent what you need, share what you don't — Trojan to Trojan.</p>`;
+  }
+
+  // Search gets its own page, laid out like a store app's search: field + Cancel, then recently viewed and recent searches.
+  // Once you type, every matching listing across campus shows, closest first.
+  const CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>';
+  const CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+  const XMARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  function rememberSearch(term) {
+    const t = String(term || '').trim();
+    if (!t) return;
+    S.recent = [t].concat((S.recent || []).filter((x) => x.toLowerCase() !== t.toLowerCase())).slice(0, 6);
+    save();
+  }
+  function searchScreen() {
+    const q = ui.q.trim().toLowerCase();
+    const head = `<div class="s-page"><div class="s-head">
+      <label class="s-field"><span class="sr-only">Search listings</span><input type="search" placeholder="What can we help you find?" value="${esc(ui.q)}" data-input="q" autocomplete="off" enterkeyhint="search">${I.search}</label>
+      <button type="button" class="s-cancel" data-action="search-cancel">Cancel</button></div>`;
+    if (q) {
+      const items = market().filter((l) => l.owner !== 'me' && (nameOf(l) + ' ' + typeOf(l).name + ' ' + D.categories.find((c) => c.id === catOf(l))?.label + ' ' + l.seller + ' ' + hallById(l.hall).name).toLowerCase().includes(q));
+      items.sort(ui.sort === 'price' ? (a, b) => a.sem - b.sem : (a, b) => hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem);
+      return head + `<section class="section" id="listings">
+      <div class="section-head"><span class="sub">${items.length} listing${items.length === 1 ? '' : 's'} across campus</span>
+        <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
+      ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : '<p class="empty">No listings match. Try another search.</p>'}
+    </section></div>`;
+    }
+    const viewed = S.viewed.map(findListing).filter(Boolean);
+    const recent = S.recent || [];
+    const popular = Object.values(D.types).map((t) => t.name);
+    return head + `
+    <a class="s-ask" href="#/room"><span class="s-spark">${I.sparkle}</span><span class="grow">Ask TroShare<span class="meta">Snap your room and see what fits</span></span>${CHEV}</a>
+    ${viewed.length ? `<section class="s-block"><div class="s-title"><h2>Recently viewed</h2><a class="link" href="#/account">See all</a></div>
+      <div class="s-viewed">${viewed.map((l) => `<a href="#/item/${l.id}" aria-label="${esc(nameOf(l))}"><img src="${esc(imgOf(l))}" alt=""></a>`).join('')}</div></section>` : ''}
+    <section class="s-block">${recent.length
+      ? `<div class="s-title"><h2>Recently searched</h2><button type="button" class="link" data-action="search-clear">Clear</button></div>
+        ${recent.map((t) => `<div class="s-row"><button type="button" class="s-term" data-action="search-term" data-id="${esc(t)}"><span class="s-ico">${CLOCK}</span>${esc(t)}</button><button type="button" class="s-x" data-action="search-forget" data-id="${esc(t)}" aria-label="Remove ${esc(t)}">${XMARK}</button></div>`).join('')}`
+      : `<div class="s-title"><h2>Popular on TroShare</h2></div>
+        ${popular.map((t) => `<div class="s-row"><button type="button" class="s-term" data-action="search-term" data-id="${esc(t)}"><span class="s-ico">${I.search}</span>${esc(t)}</button></div>`).join('')}`}
+    </section></div>`;
   }
 
   function itemScreen(id) {
@@ -333,8 +376,10 @@
         </div>
         <span class="meta">Up to ${MAX_LISTING_PHOTOS} photos of the actual item. No photo? We'll show a stock picture.</span>
       </div>
-      <div class="field"><label for="f-type">Category</label>
-        <select id="f-type" class="input" data-input="type">${Object.entries(D.types).map(([k, t]) => `<option value="${k}" ${d.type === k ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>
+      <div class="field"><span class="label">Category</span>
+        <div class="chips" role="radiogroup" aria-label="Category">${D.categories.filter((c) => c.id !== 'all').map((c) => `<button type="button" role="radio" class="chip ${D.types[d.type].cat === c.id ? 'on' : ''}" aria-checked="${D.types[d.type].cat === c.id}" data-action="sell-cat" data-id="${c.id}">${esc(c.label)}</button>`).join('')}</div></div>
+      <div class="field"><label for="f-type">Item</label>
+        <select id="f-type" class="input" data-input="type">${Object.entries(D.types).filter(([, t]) => t.cat === D.types[d.type].cat).map(([k, t]) => `<option value="${k}" ${d.type === k ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>
       <div class="field"><label for="f-title">Title</label><input id="f-title" class="input" data-input="title" value="${esc(d.title)}" maxlength="40"></div>
       <div class="field"><span class="label">Condition</span>
         <div class="pills" role="radiogroup" aria-label="Condition">${conds.map((c) => `<button type="button" role="radio" class="pill ${d.condition === c ? 'on' : ''}" aria-checked="${d.condition === c}" data-action="cond" data-id="${c}">${c}</button>`).join('')}</div></div>
@@ -662,17 +707,38 @@
     </div>`;
   }
 
-  // AR Preview tab: pick a kind of furniture and preview it at real size with the existing AR viewer.
+  // AR Preview tab: pick an item from the photo rail, spin the 3D model, then place it in your room at real size.
   function arPreviewPanel() {
     const picks = Object.keys(AR_MODELS).map((type) => ({ type, l: bestListing(type) })).filter((p) => p.l);
     if (!picks.length) return '<p class="empty">No 3D previews yet.</p>';
     const cur = picks.find((p) => p.type === ui.arType) || picks[0];
-    return `<section class="section">
-      <div><h2 class="serif" style="margin:0;font-size:26px">Preview furniture in AR</h2>
-        <p class="sub" style="margin:6px 0 0">Choose an item and place it in your room at real size with your phone’s camera.</p></div>
-      <div class="chips ar-picks" role="radiogroup" aria-label="Item to preview">${picks.map((p) =>
-        `<button type="button" role="radio" class="chip ${p === cur ? 'on' : ''}" aria-checked="${p === cur}" data-action="ar-pick" data-id="${esc(p.type)}">${esc(typeOf(p.l).name)}</button>`).join('')}</div>
-      ${arBody(cur.l)}
+    const l = cur.l;
+    const from = (type) => Math.min(...market().filter((x) => x.type === type && x.owner !== 'me').map((x) => x.sem));
+    const phone = onIPhone() || onAndroid();
+    const place = placementFor(l.type);
+    const src = 'models/' + l.type;
+    return `<section class="section ar-panel">
+      <div><h2 class="serif ar-h">Try it before you rent</h2>
+        <p class="sub" style="margin:6px 0 0">Pick an item and drop a real-size 3D model into your room with your phone’s camera.</p></div>
+      <div class="ar-rail" role="radiogroup" aria-label="Item to preview">${picks.map((p) => `<button type="button" role="radio" class="ar-tile ${p === cur ? 'on' : ''}" aria-checked="${p === cur}" data-action="ar-pick" data-id="${esc(p.type)}">
+          <span class="ar-tile-ph"><img src="${esc(imgOf(p.l))}" alt=""></span>
+          <span class="ar-tile-name">${esc(typeOf(p.l).name)}</span>
+          <span class="ar-tile-price">from ${money(from(p.type))}/sem</span></button>`).join('')}</div>
+      <div class="ar-card">
+        <div class="ar-stage-wrap">
+          <model-viewer class="ar-stage" id="ar-model" src="${src}.glb" ios-src="${src}.usdz" poster="${esc(imgOf(l))}" alt="${esc(nameOf(l))} in 3D, ${esc(AR_MODELS[l.type])}" camera-controls auto-rotate auto-rotate-delay="800" rotation-per-second="18deg" touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>
+        </div>
+        <div class="ar-card-body">
+          <div class="ar-title-row"><span class="grow"><span class="t-serif ar-name">${esc(typeOf(l).name)}</span><span class="meta">${esc(l.seller)} · ${esc(hallById(l.hall).walk)}</span></span><span class="ar-price">${money(l.sem)}<small>/sem</small></span></div>
+          <span class="ar-size">${I.viewfinder}Real size · ${esc(AR_MODELS[l.type])}</span>
+          ${place ? `<span class="where" style="align-items:flex-start">${I.pin}Suggested spot: ${esc(place.replace(/[. ]*$/, ''))}</span>` : ''}
+          <div class="ar-actions">
+            ${phone ? arButton(l, 'AR Preview', 'btn btn-cardinal') : `<button type="button" class="btn btn-cardinal" data-action="ar-desk">${I.viewfinder}AR Preview</button>`}
+            <a class="btn btn-outline" href="#/item/${encodeURIComponent(l.id)}">Rent</a>
+          </div>
+          <p class="ar-hint">Point at the floor, tap the circle, then walk around it.</p>
+        </div>
+      </div>
     </section>`;
   }
 
@@ -972,6 +1038,7 @@
     else switch (route) {
       // Browse now lives on Home; old #/browse links open Home at the list.
       case 'browse': ui.toList = true; html = homeScreen(); break;
+      case 'search': html = searchScreen(); break;
       case 'item': html = itemScreen(id); break;
       case 'checkout': html = checkoutScreen(); break;
       case 'sell': html = sellScreen(); break;
@@ -995,8 +1062,8 @@
       ui.toList = false;
       const list = document.getElementById('listings');
       if (list) list.scrollIntoView({ block: 'start' });
-      if (ui.focusQ) { ui.focusQ = false; const qi = app.querySelector('[data-input="q"]'); if (qi) qi.focus({ preventScroll: true }); }
     }
+    if (ui.focusQ && route === 'search') { ui.focusQ = false; const qi = app.querySelector('[data-input="q"]'); if (qi) qi.focus({ preventScroll: true }); }
   }
   function rerender() { const y = window.scrollY; render(); window.scrollTo(0, y); }
 
@@ -1069,6 +1136,8 @@
   }
 
   app.addEventListener('click', (e) => {
+    // Opening a search result counts as a search worth remembering.
+    if (e.target.closest('.s-page .lcard')) rememberSearch(ui.q);
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const a = el.dataset.action, id = el.dataset.id;
@@ -1079,12 +1148,6 @@
       case 'hall': S.hall = id ? (S.hall === id ? null : id) : null; save(); rerender(); break;
       case 'cat': S.cat = id; save(); rerender(); break;
       case 'scroll-list': document.getElementById('listings').scrollIntoView({ behavior: 'smooth' }); break;
-      case 'search': {
-        ui.toList = true; ui.focusQ = true;
-        const r = parse().route;
-        if (r === 'home' || r === 'browse') render(); else location.hash = '#/home';
-        break;
-      }
       case 'fav': {
         const on = !server.favorites.includes(id);
         const before = server.favorites;
@@ -1096,6 +1159,11 @@
         break;
       }
       case 'photo-idx': ui.photoIdx = Number(id); rerender(); break;
+      case 'search': e.preventDefault(); ui.focusQ = true; if (parse().route === 'search') render(); else { ui.searchFrom = location.hash || '#/home'; ui.q = ''; location.hash = '#/search'; } break;
+      case 'search-cancel': ui.q = ''; location.hash = ui.searchFrom && ui.searchFrom !== '#/search' ? ui.searchFrom : '#/home'; break;
+      case 'search-term': ui.q = id; rememberSearch(id); render(); break;
+      case 'search-forget': S.recent = (S.recent || []).filter((t) => t !== id); save(); render(); break;
+      case 'search-clear': S.recent = []; save(); render(); break;
       case 'plan': ui.plan = id; rerender(); break;
       case 'hand': ui.hand = id; rerender(); break;
       case 'message': {
@@ -1149,6 +1217,16 @@
       case 'retry-load': loadServer().then(rerender); rerender(); break;
       case 'room-tab': ui.roomTab = id; rerender(); break;
       case 'ar-pick': ui.arType = id; rerender(); break;
+      case 'sell-cat': {
+        // Same categories as the Home chips; picking one switches the item to the first kind in it.
+        const d = ui.draft, old = D.types[d.type].name;
+        if (D.types[d.type].cat !== id) {
+          d.type = Object.keys(D.types).find((k) => D.types[k].cat === id);
+          if (!d.title || d.title === old) d.title = D.types[d.type].name;
+        }
+        rerender(); break;
+      }
+      case 'ar-desk': toast('Open TroShare on your iPhone to use the camera'); break;
       case 'residence': { const f = app.querySelector('[data-form=profile]'); if (f) f.scrollIntoView({ behavior: 'smooth' }); break; }
       case 'sample-data':
         if (window.confirm('Replace your rentals and sample-seller chats on this device with sample activity?')) {
@@ -1183,7 +1261,7 @@
         S.cart.push({ listingId: id, plan: 'sem', handoff: l.handoff === 'pickup' ? 'pick' : 'drop' });
         save(); location.hash = '#/checkout'; toast(nameOf(l) + ' added'); break;
       }
-      case 'browse-type': ui.q = D.types[id].name; S.cat = 'all'; S.hall = null; save(); ui.toList = true; location.hash = '#/home'; break;
+      case 'browse-type': ui.q = D.types[id].name; ui.searchFrom = location.hash; S.cat = 'all'; save(); location.hash = '#/search'; break;
       case 'cond': ui.draft.condition = id; rerender(); break;
       case 'rm-photo': ui.draft.photos.splice(Number(id), 1); rerender(); break;
     }
@@ -1221,6 +1299,10 @@
     if (ui.draft && (k === 'title' || k === 'sem' || k === 'year1')) ui.draft[k] = el.value;
   });
 
+  // Return / the blue Search key saves the search and closes the keyboard.
+  app.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.dataset && e.target.dataset.input === 'q') { e.preventDefault(); rememberSearch(e.target.value); e.target.blur(); }
+  });
   app.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
