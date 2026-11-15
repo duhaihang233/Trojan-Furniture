@@ -27,7 +27,7 @@
   }
 
   // UI-only state (not persisted)
-  const ui = { itemId: null, photoIdx: 0, roomTab: 'ar', arType: null, q: '', sort: 'near', draft: null };
+  const ui = { itemId: null, photoIdx: 0, roomTab: 'ar', arType: null, q: '', sort: 'near', draft: null, modelBusy: null };
 
   // Data on the TroShare server: every student's listings and your favorites.
   const server = { listings: [], favorites: [], loaded: false, loading: false, error: null, at: 0 };
@@ -74,7 +74,8 @@
   function fromServer(x) {
     return {
       id: x.id, type: x.type, title: x.title, condition: x.condition, sem: x.sem, year1: x.year1, handoff: x.handoff,
-      photo: x.photos[0] || null, photos: x.photos, hall: x.seller.hall, seller: x.seller.name, year: x.seller.year,
+      photo: x.photos[0] || null, photos: x.photos, model: x.model && x.model.glb ? x.model : null,
+      hall: x.seller.hall, seller: x.seller.name, year: x.seller.year,
       rating: null, rentals: 0, owner: x.mine ? 'me' : 'other', status: x.status, openToSell: x.openToSell, createdAt: x.createdAt
     };
   }
@@ -240,7 +241,8 @@
           ? `<button type="button" class="btn btn-cardinal btn-small" style="flex:1" data-action="resume" data-id="${esc(id)}">Show it again</button>`
           : `<button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="pause" data-id="${esc(id)}">Hide for now</button>`}
         <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="delete-listing" data-id="${esc(id)}">Delete</button>
-      </div>`;
+      </div>
+      ${l.photo && !(l.model && l.model.fromPhoto) ? `<button type="button" class="btn btn-gold" data-action="build-model" data-id="${esc(id)}" ${ui.modelBusy === id ? 'disabled' : ''}>${ui.modelBusy === id ? 'Building a 3D model from your photo…' : 'Build AR model from this photo'}</button>` : ''}`;
     } else if (l.sample) {
       note = `<div class="callout">${I.shield}<span><b>Sample listing.</b> It shows how TroShare works; ${esc(l.seller)} isn't a real student. Real listings from USC students appear first on Home.</span></div>`;
     } else {
@@ -248,7 +250,7 @@
     }
     return `${topbar(nameOf(l), '#/home')}
     <div class="photo"><img src="${esc(shown)}" alt="${esc(nameOf(l))}${l.photo ? ", the seller's actual item" : ''}"><span class="badge">${esc(l.condition)}</span>
-      ${AR_MODELS[l.type] ? arButton(l, 'AR Preview', 'fit-btn') : ''}
+      ${modelFiles(l) ? arButton(l, 'AR Preview', 'fit-btn') : ''}
       ${mine ? '' : `<button type="button" class="icon-btn" data-action="fav" data-id="${esc(id)}" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites" style="position:absolute;top:8px;left:8px;color:var(--cardinal)">${I.heart(fav)}</button>`}</div>
     ${photos.length > 1 ? `<div class="hscroll" style="padding:10px 16px 0">${photos.map((src, i) => `<button type="button" class="thumb photo-pick ${src === shown ? 'on' : ''}" data-action="photo-idx" data-id="${i}" aria-label="Photo ${i + 1}" aria-pressed="${src === shown}"><img src="${esc(src)}" alt=""></button>`).join('')}</div>` : ''}
     <section class="section">
@@ -279,7 +281,7 @@
           ${d.photos.map((p, i) => `<div class="photo-slot"><img src="${p}" alt="Photo ${i + 1}"><button type="button" class="x" data-action="rm-photo" data-id="${i}" aria-label="Remove photo ${i + 1}">✕</button></div>`).join('')}
           ${d.photos.length < MAX_LISTING_PHOTOS ? `<label class="photo-slot add">${I.camera}Add photo<input type="file" accept="image/*" class="sr-only" data-input="photo"></label>` : ''}
         </div>
-        <span class="meta">Up to ${MAX_LISTING_PHOTOS} photos of the actual item. No photo? We'll show a stock picture.</span>
+        <span class="meta">Up to ${MAX_LISTING_PHOTOS} photos of the actual item. A photo becomes a real-size AR model, usually within a minute. No photo? We'll show a stock picture.</span>
       </div>
       <div class="field"><label for="f-type">Category</label>
         <select id="f-type" class="input" data-input="type">${Object.entries(D.types).map(([k, t]) => `<option value="${k}" ${d.type === k ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>
@@ -295,7 +297,7 @@
         <label class="check"><input type="checkbox" data-input="drop" ${d.drop ? 'checked' : ''}>I'll drop it off at their hall</label>
         <label class="check"><input type="checkbox" data-input="pick" ${d.pick ? 'checked' : ''}>They pick up at my spot</label></div>
       <label class="switch-row"><span><span style="font-weight:600;display:block">Also open to selling</span><span class="meta">Renters can make an offer to keep it</span></span><input type="checkbox" data-input="sell" ${d.sell ? 'checked' : ''}></label>
-      <button type="submit" class="btn btn-cardinal" ${d.busy ? 'disabled' : ''}>${d.busy ? 'Publishing…' : 'Publish listing'}</button>
+      <button type="submit" class="btn btn-cardinal" ${d.busy ? 'disabled' : ''}>${d.phase === 'model' ? 'Building a 3D model from your photo…' : (d.busy ? 'Publishing…' : 'Publish listing')}</button>
       <span class="note">Only signed-in USC students can see your listing. You can hide or delete it any time from My Account.</span>
     </form>`;
   }
@@ -561,16 +563,27 @@
   // One tap opens the rear camera and puts the model on the floor.
   // iPhone uses AR Quick Look. Android uses Scene Viewer. A computer has no phone camera, so it shows the model instead.
   // cls replaces the default gold button look (the product photo uses its own pill).
+  // A listing photo produces its own model. Otherwise the category stand-in is used. Microwave has no stand-in.
+  function modelFiles(l) {
+    if (l.model && l.model.glb && l.model.usdz && l.model.size) {
+      return { glb: l.model.glb, usdz: l.model.usdz, size: l.model.size, fromPhoto: true };
+    }
+    if (!AR_MODELS[l.type]) return null;
+    return { glb: 'models/' + l.type + '.glb', usdz: 'models/' + l.type + '.usdz', size: AR_MODELS[l.type], fromPhoto: false };
+  }
+
   function arButton(l, label, cls) {
+    const files = modelFiles(l);
+    if (!files) return '';
     const img = `<img src="${esc(imgOf(l))}" alt="">`;
     const look = cls || 'btn btn-gold';
     const icon = cls ? I.viewfinder : '';
     if (onIPhone()) {
-      // AR Quick Look needs an <img> as the link's first child.
-      return `<a class="${look} ar-launch" rel="ar" href="models/${l.type}.usdz#allowsContentScaling=0">${img}${esc(label)}</a>`;
+      // AR Quick Look needs an <img> as the link's first child, and a real USDZ URL the system can download.
+      return `<a class="${look} ar-launch" rel="ar" href="${esc(files.usdz)}#allowsContentScaling=0">${img}${esc(label)}</a>`;
     }
     if (onAndroid()) {
-      const file = new URL('models/' + l.type + '.glb', location.href).href;
+      const file = new URL(files.glb, location.href).href;
       const scene = 'https://arvr.google.com/scene-viewer/1.0?mode=ar_preferred&disableScaling=true&file=' + encodeURIComponent(file) + '&title=' + encodeURIComponent(nameOf(l));
       return `<a class="${look} ar-launch" href="${scene}">${cls ? icon : img}${esc(label)}</a>`;
     }
@@ -580,8 +593,7 @@
   function arScreen(id) {
     const l = findListing(id);
     if (!l) return `${topbar('Preview in AR', '#/room')}<p class="empty">This listing is gone.</p>`;
-    const size = AR_MODELS[l.type];
-    if (!size) return `${topbar('Preview in AR', '#/item/' + encodeURIComponent(id))}<p class="empty">No 3D preview for this item yet.</p>`;
+    if (!modelFiles(l)) return `${topbar('Preview in AR', '#/item/' + encodeURIComponent(id))}<p class="empty">No 3D preview for this item yet.</p>`;
     const back = (room.analysis ? '#/room' : '#/item/' + encodeURIComponent(id));
     return `${topbar('Preview in AR', back)}
     <section class="section">
@@ -591,17 +603,20 @@
   }
 
   function arBody(l) {
-    const size = AR_MODELS[l.type];
+    const files = modelFiles(l);
+    if (!files) return '';
     const id = l.id;
     const place = placementFor(l.type);
-    const src = 'models/' + l.type;
     const spot = place
       ? 'Suggested spot: ' + place.replace(/[. ]*$/, '') + '. Aim the rear camera there. When a circle appears on the floor, tap it and the furniture sits down at real size.'
       : 'Aim the rear camera at the floor. When a circle appears, tap it and the furniture sits down at real size.';
     const phone = onIPhone() || onAndroid();
+    const about = files.fromPhoto
+      ? `Built from the seller's photo, ${files.size}. The photo is on the front and back, and it stands on the floor at that size.`
+      : `This is a typical ${typeOf(l).name}, ${files.size}, not a scan of the seller's photo.`;
     return `<p class="sub" style="margin:0">${esc(spot)}</p>
-      ${phone ? arButton(l, 'Open camera and place on the floor') : `<model-viewer class="ar-stage" id="ar-model" src="${src}.glb" ios-src="${src}.usdz" alt="${esc(nameOf(l))} in 3D, ${esc(size)}" camera-controls touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>`}
-      <p class="meta">This is a typical ${esc(typeOf(l).name)}, ${esc(size)}, not a scan of the seller's photo. ${phone ? 'The camera is your phone’s rear camera. Move slowly so it can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page in Safari on your iPhone, then tap AR Preview.'}</p>
+      ${phone ? arButton(l, 'Open camera and place on the floor') : `<model-viewer class="ar-stage" id="ar-model" src="${esc(files.glb)}" ios-src="${esc(files.usdz)}" alt="${esc(nameOf(l))} in 3D, ${esc(files.size)}" camera-controls touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>`}
+      <p class="meta">${esc(about)} ${phone ? 'The camera is your phone’s rear camera. Move slowly so it can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page in Safari on your iPhone, then tap AR Preview.'}</p>
       <div class="card pad row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
         ${l.owner === 'me' ? '' : `<a class="btn btn-cardinal btn-small" href="#/item/${encodeURIComponent(id)}">View</a>`}</div>`;
   }
@@ -845,6 +860,7 @@
       case 'browse-type': ui.q = D.types[id].name; S.cat = 'all'; S.hall = null; save(); ui.toList = true; location.hash = '#/home'; break;
       case 'cond': ui.draft.condition = id; rerender(); break;
       case 'rm-photo': ui.draft.photos.splice(Number(id), 1); rerender(); break;
+      case 'build-model': buildModel(id); break;
     }
   });
 
@@ -899,7 +915,8 @@
       if (!(sem > 0)) return toast('Add a price per semester');
       if (!d.drop && !d.pick) return toast('Choose at least one handoff option');
       if (d.busy) return;
-      d.busy = true; rerender();
+      d.busy = true; d.phase = 'publish'; rerender();
+      const hadPhoto = d.photos.length > 0;
       AUTH.call('/listings', {
         method: 'POST',
         body: JSON.stringify({
@@ -907,14 +924,52 @@
           handoff: d.drop && d.pick ? 'both' : (d.drop ? 'drop' : 'pickup'), openToSell: d.sell,
           photos: d.photos.map((url) => url.split(',')[1])
         })
-      }).then((r) => {
-        const l = putListing(r.listing);
-        ui.draft = null;
-        toast('Published! Other USC students can see it now');
-        location.hash = '#/item/' + l.id;
-      }).catch((err) => { d.busy = false; rerender(); toast(err.message); });
+      }).then((r) => finishListing(r, hadPhoto)).catch((err) => { d.busy = false; d.phase = ''; rerender(); toast(err.message); });
     }
   });
+
+  // The listing is already public. The model call is separate so a slow or failed model never blocks publishing.
+  function finishListing(r, hadPhoto) {
+    let l = putListing(r.listing);
+    if (!hadPhoto) {
+      ui.draft = null;
+      toast('Published! Other USC students can see it now');
+      location.hash = '#/item/' + l.id;
+      return;
+    }
+    if (ui.draft) ui.draft.phase = 'model';
+    rerender();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 55000);
+    AUTH.call('/listings/' + encodeURIComponent(l.id) + '/model', { method: 'POST', body: '{}', signal: ctrl.signal })
+      .then((m) => { l = putListing(m.listing); toast('Published, with an AR model from your photo'); })
+      .catch((err) => toast(modelFailText(err)))
+      .finally(() => {
+        clearTimeout(timer);
+        ui.draft = null;
+        location.hash = '#/item/' + l.id;
+      });
+  }
+
+  function modelFailText(err) {
+    if (err && err.name === 'AbortError') return 'Published. Building the model took too long, so AR uses the usual one for now.';
+    if (err && err.status === 404) return 'Published. The model service is not live yet, so AR uses the usual model.';
+    return 'Published. ' + ((err && err.message) || 'AR will use the usual model for this category.');
+  }
+
+  function buildModel(id) {
+    if (ui.modelBusy) return;
+    const l = findListing(id);
+    if (!l || l.owner !== 'me') return;
+    ui.modelBusy = id;
+    rerender();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 55000);
+    AUTH.call('/listings/' + encodeURIComponent(id) + '/model', { method: 'POST', body: '{}', signal: ctrl.signal })
+      .then((r) => { putListing(r.listing); toast('AR model ready'); })
+      .catch((err) => toast(err && err.name === 'AbortError' ? 'That took too long. Try again.' : err.message))
+      .finally(() => { clearTimeout(timer); ui.modelBusy = null; rerender(); });
+  }
 
   function loadImage(src) {
     return new Promise((resolve, reject) => {

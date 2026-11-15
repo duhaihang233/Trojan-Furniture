@@ -4,20 +4,20 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 
 1. **USC sign-in.** It accepts only verified `@usc.edu` Google accounts and then issues a TroShare session token.
 2. **Student data.** It stores profiles, listings and favorites, so each student's account works on any device.
-3. **AI room planner.** It calls Claude with TroShare's Anthropic API key. Visitors never need a key, and the key never reaches the browser or this repository.
+3. **AI.** It calls Claude with TroShare's Anthropic API key for room recommendations, and to measure a listing photo before building its AR model. Visitors never need a key, and the key never reaches the browser or this repository.
 
 - **Live URL:** `https://troshare-room-proxy.thomas-haihang-du.workers.dev`
-- **Allowed sites:** the Worker only accepts requests from `https://duhaihang233.github.io`, plus two localhost addresses for testing. To add more, edit `ALLOWED_ORIGINS` in [worker.js](worker.js). Every endpoint except `/auth/google` and `/photos/…` requires a session.
+- **Allowed sites:** the Worker only accepts requests from `https://duhaihang233.github.io`, plus localhost addresses for testing (`localhost:8000`, `127.0.0.1:8000`, `127.0.0.1:8765`). To add more, edit `ALLOWED_ORIGINS` in [worker.js](worker.js). Every endpoint except `/auth/google`, `/photos/…`, and `/listing-models/…` requires a session.
 - **Storage:**
 
   | What | Where |
   |---|---|
   | Students, listings, favorites | D1 database `troshare-db` (tables in [schema.sql](schema.sql)) |
-  | Listing photos (JPEG) | KV namespace `PHOTOS` |
+  | Listing photos (JPEG) and generated AR models | KV namespace `PHOTOS` |
   | Profiles from before the database existed | KV namespace `PROFILES`, copied into D1 the first time each student shows up |
 
-- **Limits per student:** 20 listings with up to 4 photos each (about 1 MB per photo); 5 new listings and 5 room analyses per minute.
-- **AI room planner:** the Worker builds the whole Claude request itself (model `claude-opus-5-5`, prompt, JSON schema), so the key can't be used for anything else. It costs about $0.04 per analysis.
+- **Limits per student:** 20 listings with up to 4 photos each (about 1 MB per photo); 5 new listings, 5 room analyses, and 5 photo models per minute.
+- **AI:** the Worker builds both Claude requests itself (model `claude-opus-5-5`, a fixed prompt, a JSON schema), so the key can't be pointed at an arbitrary question. A listing model measures one photo (capped at 45 seconds) and stores a floor-standing GLB and USDZ textured with that photo. Room analysis costs about $0.04.
 
 ## Endpoints
 
@@ -29,9 +29,11 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | `GET /listings` | Everyone's available listings, plus all of yours |
 | `POST /listings` | Publishes a listing (photos sent as base64 JPEG) |
 | `PATCH /listings/:id` | Edits your listing, or hides/shows it (`status: "paused"` / `"available"`) |
-| `DELETE /listings/:id` | Deletes your listing and its photos |
+| `DELETE /listings/:id` | Deletes your listing, its photos, and its AR model |
+| `POST /listings/:id/model` | Measures your listing's first photo and stores an AR model. The listing is already published. |
 | `PUT` / `DELETE /favorites/:id` | Saves or unsaves a listing |
 | `GET /photos/:key` | Listing photo (public, cached for a year) |
+| `GET /listing-models/:id.glb` and `.usdz` | Generated AR model (public, so the phone's AR viewer can download it) |
 | `POST /analyze-room` | AI room recommendations |
 
 ## Common tasks

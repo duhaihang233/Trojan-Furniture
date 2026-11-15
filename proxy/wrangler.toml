@@ -5,7 +5,7 @@ name = "troshare-room-proxy"
 main = "worker.js"
 compatibility_date = "2025-09-01"
 
-# Per-student limits: 5 room analyses and 5 new listings per minute (separate counters).
+# Per-student limits: 5 room analyses, 5 new listings, and 5 photo models per minute (separate counters).
 [[unsafe.bindings]]
 name = "LIMITER"
 type = "ratelimit"

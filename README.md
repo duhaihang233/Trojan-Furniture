@@ -23,7 +23,9 @@ Built for the USC **"Building for Trojans"** hackathon.
 - **Listings** — photos, semester and full-year prices, handoff options, and the seller's name,
   class year, hall and verified USC badge. Tap the heart to save one to your favorites.
 - **List an item** — add up to 4 photos (take them with your iPhone camera), set your price and handoff
-  options, and publish. Every signed-in student sees it right away. Hide, show or delete it from the listing.
+  options, and publish. With a photo, TroShare asks Claude how big the item is and builds a real-size AR
+  model from that photo, usually within a minute. Every signed-in student sees the listing right away.
+  Hide, show or delete it from the listing.
 - **Coming next:** renting, messaging and payments.
 - **Room Preview tab** — two tabs at the top:
   - **AR Preview** — pick an item and place it in your room at real size with the phone camera
@@ -33,6 +35,7 @@ Built for the USC **"Building for Trojans"** hackathon.
     From a suggestion, **See it in my room** places the item on your room photo: drag to move, pinch or
     use the slider to resize, twist to rotate.
 - **AR Preview on listings** — the button on each listing's photo opens the same AR preview.
+  A listing with a generated model uses that photo. Otherwise it uses a typical model for the category.
 - **My Account** — your profile, your listings, recently viewed and favorites.
 - **Works like a native app on iPhone** — installable to the Home Screen, full-screen, offline-capable.
 

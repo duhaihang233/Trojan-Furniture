@@ -2,13 +2,17 @@
 //
 // - Accounts: Google sign-in limited to verified @usc.edu accounts, then a TroShare session token.
 // - Data: student profiles, listings and favorites in D1 (schema.sql); listing photos in KV.
-// - AI room planner: the web app sends room photos here instead of calling Anthropic directly, so
-//   visitors never need an API key and the key never reaches the browser. The Worker builds the whole
-//   Claude request itself (model, prompt, schema), so the key can only be used for this one feature.
+// - AI: the web app never calls Anthropic itself, so visitors never need a key and the key never
+//   reaches the browser. This Worker builds two fixed Claude requests (room recommendations, and the
+//   real-world size of one listing photo). The photo model is a floor-standing box textured with that
+//   photo; Claude only returns the size.
+
+import { buildPhotoModel } from './model3d.js';
 
 const ALLOWED_ORIGINS = new Set([
   'https://duhaihang233.github.io',
   'http://127.0.0.1:8765', // local testing
+  'http://127.0.0.1:8000',
   'http://localhost:8000',
 ]);
 
@@ -57,8 +61,9 @@ const SCHEMA = {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    // Listing photos are plain public images (<img> tags can't send a login token); their keys are random.
+    // Listing photos and generated AR models are public: <img> and the phone's AR viewer can't send a login token.
     if (request.method === 'GET' && url.pathname.startsWith('/photos/')) return servePhoto(env, url.pathname.slice(8));
+    if (request.method === 'GET' && url.pathname.startsWith('/listing-models/')) return serveListingModel(env, url.pathname.slice(16));
 
     const origin = request.headers.get('Origin') || '';
     const allowed = ALLOWED_ORIGINS.has(origin);
@@ -96,6 +101,8 @@ export default {
       const lm = path.match(/^\/listings\/([A-Za-z0-9_-]{1,40})$/);
       if (lm && method === 'PATCH') return reply(200, { listing: await updateListing(request, env, session, lm[1], photoBase) });
       if (lm && method === 'DELETE') { await deleteListing(env, session, lm[1]); return reply(200, { ok: true }); }
+      const mm = path.match(/^\/listings\/([A-Za-z0-9_-]{1,40})\/model$/);
+      if (mm && method === 'POST') return reply(200, { listing: await generateListingModel(env, session, mm[1], photoBase) });
       const fm = path.match(/^\/favorites\/([A-Za-z0-9_-]{1,40})$/);
       if (fm && (method === 'PUT' || method === 'DELETE')) return reply(200, { favorites: await setFavorite(env, session.sub, fm[1], method === 'PUT') });
       if (method !== 'POST' || path !== '/analyze-room') return fail(404, 'Not found.');
@@ -323,9 +330,19 @@ function listingOut(row, me, photoBase) {
     id: row.id, type: row.type, title: row.title, condition: row.condition, sem: row.sem, year1: row.year1,
     handoff: row.handoff, openToSell: !!row.open_to_sell, status: row.status, createdAt: row.created_at,
     photos: JSON.parse(row.photos || '[]').map((k) => photoBase + k),
+    model: modelOut(row, photoBase),
     seller: { name: sellerName(row), year: row.u_year || '', hall: row.u_hall || 'webb', picture: row.u_picture || '' },
     mine: row.owner === me,
   };
+}
+
+function modelOut(row, photoBase) {
+  if (!row.model_json) return null;
+  let m;
+  try { m = JSON.parse(row.model_json); } catch { return null; }
+  if (!m || !(m.width_m > 0) || !(m.height_m > 0) || !(m.depth_m > 0) || typeof m.size !== 'string') return null;
+  const base = photoBase.slice(0, -'photos/'.length) + 'listing-models/' + row.id;
+  return { glb: base + '.glb', usdz: base + '.usdz', width_m: m.width_m, height_m: m.height_m, depth_m: m.depth_m, size: m.size, fromPhoto: true };
 }
 const LISTING_SELECT = `SELECT l.*, u.given, u.family, u.name, u.year AS u_year, u.hall AS u_hall, u.picture AS u_picture
   FROM listings l JOIN users u ON u.sub = l.owner`;
@@ -444,7 +461,10 @@ async function deleteListing(env, session, id) {
     env.DB.prepare('DELETE FROM listings WHERE id = ?').bind(id),
     env.DB.prepare('DELETE FROM favorites WHERE listing_id = ?').bind(id),
   ]);
-  if (env.PHOTOS) await Promise.all(JSON.parse(row.photos || '[]').map((k) => env.PHOTOS.delete(k)));
+  if (env.PHOTOS) {
+    const keys = JSON.parse(row.photos || '[]').concat(['model-' + id + '.glb', 'model-' + id + '.usdz']);
+    await Promise.all(keys.map((k) => env.PHOTOS.delete(k)));
+  }
 }
 
 async function servePhoto(env, key) {
@@ -453,6 +473,153 @@ async function servePhoto(env, key) {
   const data = await env.PHOTOS.get(key, 'arrayBuffer');
   if (!data) return new Response('Not found', { status: 404, headers });
   return new Response(data, { headers: { ...headers, 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=31536000, immutable' } });
+}
+
+async function serveListingModel(env, name) {
+  const headers = { 'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff' };
+  const m = /^((?:u[a-f0-9]{16}))\.(glb|usdz)$/.exec(name);
+  if (!m || !env.PHOTOS) return new Response('Not found', { status: 404, headers });
+  const data = await env.PHOTOS.get('model-' + m[1] + '.' + m[2], 'arrayBuffer');
+  if (!data) return new Response('Not found', { status: 404, headers });
+  const type = m[2] === 'glb' ? 'model/gltf-binary' : 'model/vnd.usdz+zip';
+  return new Response(data, { headers: { ...headers, 'Content-Type': type, 'Cache-Control': 'public, max-age=300' } });
+}
+
+// Typical category sizes, in meters (width, height, depth), used when Claude's answer is unusable.
+const DEFAULT_METERS = {
+  lamp: [0.18, 0.44, 0.18], floor: [0.28, 1.6, 0.28], fan: [0.28, 1.03, 0.28], bean: [0.83, 0.7, 0.83],
+  tv: [0.74, 0.51, 0.08], topper: [0.88, 0.21, 0.65], cart: [0.42, 0.92, 0.36], micro: [0.44, 0.26, 0.34],
+};
+
+const MODEL_SCHEMA = {
+  type: 'object',
+  properties: {
+    width_m: { type: 'number', description: 'Side-to-side size of the item itself, in meters.' },
+    height_m: { type: 'number', description: 'Floor-to-top size of the item itself, in meters.' },
+    depth_m: { type: 'number', description: 'Front-to-back size of the item itself, in meters.' },
+    size: { type: 'string', description: 'One short English phrase, for example: about 70 cm tall and 80 cm wide.' },
+  },
+  required: ['width_m', 'height_m', 'depth_m', 'size'],
+  additionalProperties: false,
+};
+
+let modelColsReady = null;
+function ensureModelColumns(env) {
+  if (!modelColsReady) {
+    modelColsReady = (async () => {
+      const info = await env.DB.prepare('PRAGMA table_info(listings)').all();
+      if ((info.results || []).some((c) => c.name === 'model_json')) return;
+      try {
+        await env.DB.prepare('ALTER TABLE listings ADD COLUMN model_json TEXT').run();
+      } catch (err) {
+        if (!/duplicate column/i.test(String(err && err.message || err))) throw err;
+      }
+    })().catch((err) => { modelColsReady = null; throw err; });
+  }
+  return modelColsReady;
+}
+
+function bytesToBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x2000) s += String.fromCharCode(...bytes.subarray(i, i + 0x2000));
+  return btoa(s);
+}
+
+function sizePhrase(raw, w, h, d) {
+  const fallback = `about ${Math.round(w * 100)} cm wide, ${Math.round(h * 100)} cm tall, and ${Math.round(d * 100)} cm deep`;
+  const s = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!s || s.length > 90 || /[\u3400-\u9fff]/.test(s)) return fallback;
+  return s;
+}
+
+function metersFrom(type, raw) {
+  const fallback = DEFAULT_METERS[type] || [0.4, 0.4, 0.4];
+  const axis = (key, i) => {
+    const n = Number(raw && raw[key]);
+    if (!Number.isFinite(n)) return fallback[i];
+    return Math.min(2.5, Math.max(0.05, n));
+  };
+  const round = (n) => Math.round(n * 1000) / 1000;
+  const width_m = round(axis('width_m', 0));
+  const height_m = round(axis('height_m', 1));
+  const depth_m = round(axis('depth_m', 2));
+  return { width_m, height_m, depth_m, size: sizePhrase(raw && raw.size, width_m, height_m, depth_m) };
+}
+
+/** Asks Claude for the item's real size. The prompt and schema are fixed here; the client only names the listing. */
+async function measureListingPhoto(env, jpeg, type) {
+  const name = ITEM_NAMES[type] || 'dorm item';
+  let upstream;
+  try {
+    upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: AbortSignal.timeout(45_000),
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2026-10-21',
+        'anthropic-beta': 'server-side-fallback-2026-07-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-5-5',
+        max_tokens: 2000,
+        system: `You measure one product in a photo so a student can preview it at real size in AR.
+
+The photo is a single dorm item a student is listing. Ignore the room, hands, and background, and measure only the item.
+Width is side to side, height is floor to top, and depth is front to back, all in meters.
+When the photo has no scale reference, use a typical real-world size for that kind of object.
+Keep every dimension between 0.05 and 2.5 meters.
+Write size as one short English phrase using centimeters or meters. Every word must be English.`,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: bytesToBase64(jpeg) } },
+            { type: 'text', text: `This photo shows a ${name} a USC student is listing. How big is the item?` },
+          ],
+        }],
+        output_config: { effort: 'low', format: { type: 'json_schema', schema: MODEL_SCHEMA } },
+        fallbacks: 'default',
+      }),
+    });
+  } catch {
+    throw new HttpError(504, 'Measuring the photo took too long. Try again.');
+  }
+  const json = await upstream.json().catch(() => null);
+  if (!upstream.ok || !json) {
+    const status = upstream.status === 429 || upstream.status === 529 ? 503 : 502;
+    throw new HttpError(status, status === 503 ? 'The model builder is busy right now. Try again in a minute.' : 'The model builder had a problem. Try again.');
+  }
+  if (json.stop_reason === 'refusal' || json.stop_reason === 'max_tokens') return metersFrom(type, null);
+  const block = (json.content || []).find((b) => b.type === 'text');
+  try { return metersFrom(type, JSON.parse(block.text)); } catch { return metersFrom(type, null); }
+}
+
+/**
+ * Builds an AR model from the listing's first photo and stores it next to the photos.
+ * Publishing already succeeded; a failure here does not remove the listing.
+ * The whole call is capped at 45s so the app can finish inside a minute.
+ */
+async function generateListingModel(env, session, id, photoBase) {
+  if (!env.ANTHROPIC_API_KEY) throw new HttpError(500, 'The model builder is not set up yet.');
+  if (!env.PHOTOS) throw new HttpError(500, 'Photo storage is not set up yet.');
+  await ensureModelColumns(env);
+  const row = await ownListing(env, session, id);
+  const keys = JSON.parse(row.photos || '[]');
+  if (!keys.length) throw new HttpError(400, 'Add a photo of the item first.');
+  if (env.LIMITER) {
+    const { success } = await env.LIMITER.limit({ key: 'model:' + session.sub });
+    if (!success) throw new HttpError(429, "You're building models very quickly. Wait a minute and try again.");
+  }
+  const photo = await env.PHOTOS.get(keys[0], 'arrayBuffer');
+  if (!photo) throw new HttpError(400, "That photo is missing. Edit the listing and add it again.");
+  const jpeg = new Uint8Array(photo);
+  const measure = await measureListingPhoto(env, jpeg, row.type);
+  const built = buildPhotoModel(jpeg, measure.width_m, measure.height_m, measure.depth_m);
+  await env.PHOTOS.put('model-' + id + '.glb', built.glb, { metadata: { type: 'model/gltf-binary', owner: session.sub } });
+  await env.PHOTOS.put('model-' + id + '.usdz', built.usdz, { metadata: { type: 'model/vnd.usdz+zip', owner: session.sub } });
+  await env.DB.prepare('UPDATE listings SET model_json = ?, updated_at = ? WHERE id = ?')
+    .bind(JSON.stringify(measure), Date.now(), id).run();
+  return getListing(env, session.sub, id, photoBase);
 }
 
 async function listFavorites(env, sub) {

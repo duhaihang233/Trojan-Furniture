@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS listings (
   handoff      TEXT NOT NULL,           -- 'both' | 'drop' | 'pickup'
   open_to_sell INTEGER NOT NULL DEFAULT 0,
   photos       TEXT NOT NULL DEFAULT '[]', -- JSON array of photo keys in the PHOTOS KV namespace
+  -- Real-world size from the listing photo, once an AR model has been built.
+  -- Existing databases get this column from the Worker the first time someone builds a model.
+  model_json   TEXT, -- {"width_m","height_m","depth_m","size"}
   status       TEXT NOT NULL DEFAULT 'available', -- 'available' | 'paused'
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
