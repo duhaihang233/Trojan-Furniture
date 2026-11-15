@@ -5,6 +5,10 @@
 // - AI room planner: the web app sends room photos here instead of calling Anthropic directly, so
 //   visitors never need an API key and the key never reaches the browser. The Worker builds the whole
 //   Claude request itself (model, prompt, schema), so the key can only be used for this one feature.
+// - AI AR models: Claude describes a listing's item as simple 3D shapes from its photos (ar.js);
+//   the browser builds the model from that description (../armodel.js).
+
+import { arRequest, cleanArSpec } from './ar.js';
 
 const ALLOWED_ORIGINS = new Set([
   'https://duhaihang233.github.io',
@@ -55,7 +59,7 @@ const SCHEMA = {
 };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     // Listing photos are plain public images (<img> tags can't send a login token); their keys are random.
     if (request.method === 'GET' && url.pathname.startsWith('/photos/')) return servePhoto(env, url.pathname.slice(8));
@@ -92,7 +96,10 @@ export default {
       }
       if (method === 'PUT' && path === '/me/profile') return reply(200, { profile: await saveProfile(request, env, session) });
       if (method === 'GET' && path === '/listings') return reply(200, { listings: await listListings(env, session.sub, photoBase) });
-      if (method === 'POST' && path === '/listings') return reply(201, { listing: await createListing(request, env, session, photoBase) });
+      if (method === 'POST' && path === '/listings') return reply(201, { listing: await createListing(request, env, ctx, session, photoBase) });
+      const am = path.match(/^\/listings\/([A-Za-z0-9_-]{1,40})\/ar-model$/);
+      if (am && method === 'GET') return reply(200, await getArModel(env, am[1]));
+      if (am && method === 'POST') return reply(200, { listing: await retryArModel(env, ctx, session, am[1], photoBase) });
       const lm = path.match(/^\/listings\/([A-Za-z0-9_-]{1,40})$/);
       if (lm && method === 'PATCH') return reply(200, { listing: await updateListing(request, env, session, lm[1], photoBase) });
       if (lm && method === 'DELETE') { await deleteListing(env, session, lm[1]); return reply(200, { ok: true }); }
@@ -330,10 +337,12 @@ function listingOut(row, me, photoBase) {
     photos: JSON.parse(row.photos || '[]').map((k) => photoBase + k),
     seller: { name: sellerName(row), year: row.u_year || '', hall: row.u_hall || 'webb', picture: row.u_picture || '' },
     mine: row.owner === me,
+    ar: arOut(row),
   };
 }
-const LISTING_SELECT = `SELECT l.*, u.given, u.family, u.name, u.year AS u_year, u.hall AS u_hall, u.picture AS u_picture
-  FROM listings l JOIN users u ON u.sub = l.owner`;
+const LISTING_SELECT = `SELECT l.*, u.given, u.family, u.name, u.year AS u_year, u.hall AS u_hall, u.picture AS u_picture,
+    a.status AS ar_status, a.error AS ar_error, a.started_at AS ar_started_at
+  FROM listings l JOIN users u ON u.sub = l.owner LEFT JOIN ar_models a ON a.listing_id = l.id`;
 
 async function listListings(env, me, photoBase) {
   // Everyone's available listings, plus all of your own (including paused ones).
@@ -381,7 +390,7 @@ function cleanListingFields(input, partial) {
   return out;
 }
 
-async function createListing(request, env, session, photoBase) {
+async function createListing(request, env, ctx, session, photoBase) {
   const input = await readJson(request, MAX_LISTING_PHOTOS * MAX_LISTING_PHOTO_BASE64 + 20_000);
   const user = await ensureUser(env, session);
   if (!user.hall || !user.year) throw new HttpError(400, 'Add your class year and hall in My Account first.');
@@ -416,6 +425,11 @@ async function createListing(request, env, session, photoBase) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)`)
     .bind(id, session.sub, fields.type, fields.title, fields.condition, fields.sem, fields.year1, fields.handoff, fields.open_to_sell,
       JSON.stringify(keys), now, now).run();
+  // "AI Generate AR model" on the List form: the listing is published right away and the model
+  // follows in the background. A failure to start doesn't undo the listing.
+  if (input.generateAr && keys.length) {
+    try { await startArModel(env, ctx, session, { id, photos: JSON.stringify(keys), title: fields.title, type: fields.type, condition: fields.condition }); } catch { /* retry from the listing page */ }
+  }
   return getListing(env, session.sub, id, photoBase);
 }
 
@@ -448,6 +462,7 @@ async function deleteListing(env, session, id) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM listings WHERE id = ?').bind(id),
     env.DB.prepare('DELETE FROM favorites WHERE listing_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM ar_models WHERE listing_id = ?').bind(id),
   ]);
   if (env.PHOTOS) await Promise.all(JSON.parse(row.photos || '[]').map((k) => env.PHOTOS.delete(k)));
 }
@@ -582,4 +597,91 @@ async function sendMessage(request, env, session, id) {
   await env.DB.prepare(`UPDATE conversations SET last_at = ?, ${buyer ? 'buyer_read' : 'seller_read'} = ? WHERE id = ?`)
     .bind(now, sent[sent.length - 1].id, id).run();
   return sent;
+}
+
+/* ---------------- AI-generated AR models (prompt and checks in ar.js) ---------------- */
+
+// Generation takes about 10 seconds and runs after the response is sent (ctx.waitUntil), which
+// Cloudflare allows for up to 30 seconds. Anything still "in progress" after this long has died.
+const AR_TIMEOUT_MS = 27_000;
+const AR_STALE_MS = 3 * 60_000;
+const AR_CATEGORY = { micro: 'Kitchen', tv: 'Tech', bean: 'Seating', lamp: 'Lighting', floor: 'Lighting', fan: 'Cooling', topper: 'Sleep', cart: 'Storage' };
+
+function arOut(row) {
+  if (!row.ar_status) return null;
+  if (row.ar_status === 'in_progress' && Date.now() - row.ar_started_at > AR_STALE_MS) {
+    return { status: 'failed', error: 'Generation took too long. Try again.' };
+  }
+  return { status: row.ar_status, error: row.ar_status === 'failed' ? row.ar_error || 'Generation failed. Try again.' : '' };
+}
+
+/** Marks the listing's model as in progress and builds it in the background. */
+async function startArModel(env, ctx, session, listing) {
+  if (!JSON.parse(listing.photos || '[]').length) throw new HttpError(400, 'Add a photo first. The AR model is built from your photos.');
+  if (!(env.ANTHROPIC_AR_KEY || env.ANTHROPIC_API_KEY)) throw new HttpError(500, 'AR model generation is not set up yet.');
+  if (env.LIMITER) {
+    const { success } = await env.LIMITER.limit({ key: 'ar:' + session.sub });
+    if (!success) throw new HttpError(429, "You're generating AR models very quickly. Wait a minute and try again.");
+  }
+  const now = Date.now();
+  await env.DB.prepare(`INSERT INTO ar_models (listing_id, status, error, spec, started_at, finished_at) VALUES (?, 'in_progress', '', NULL, ?, NULL)
+    ON CONFLICT(listing_id) DO UPDATE SET status = 'in_progress', error = '', spec = NULL, started_at = excluded.started_at, finished_at = NULL`)
+    .bind(listing.id, now).run();
+  ctx.waitUntil(buildArModel(env, listing, now));
+}
+
+async function buildArModel(env, listing, startedAt) {
+  const finish = (status, error, spec) => env.DB.prepare(
+    "UPDATE ar_models SET status = ?, error = ?, spec = ?, finished_at = ? WHERE listing_id = ? AND started_at = ?")
+    .bind(status, error, spec ? JSON.stringify(spec) : null, Date.now(), listing.id, startedAt).run();
+  try {
+    const keys = JSON.parse(listing.photos || '[]').slice(0, 2);
+    const photos = [];
+    for (const k of keys) {
+      const buf = await env.PHOTOS.get(k, 'arrayBuffer');
+      if (buf) photos.push(bytesToB64(new Uint8Array(buf)));
+    }
+    if (!photos.length) return finish('failed', 'The listing photo could not be read.');
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: AbortSignal.timeout(AR_TIMEOUT_MS),
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': env.ANTHROPIC_AR_KEY || env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2026-10-21',
+        'anthropic-beta': 'server-side-fallback-2026-07-01',
+      },
+      body: JSON.stringify(arRequest(photos, { title: listing.title, category: AR_CATEGORY[listing.type] || listing.type, condition: listing.condition })),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json) return finish('failed', res.status === 429 || res.status === 529 ? 'The AI is busy right now. Try again in a minute.' : 'The AI had a problem. Try again.');
+    if (json.stop_reason === 'refusal') return finish('failed', "Claude couldn't model this item from the photos.");
+    if (json.stop_reason === 'max_tokens') return finish('failed', 'The model description was cut off. Try again.');
+    const block = (json.content || []).find((b) => b.type === 'text');
+    let raw;
+    try { raw = JSON.parse(block.text); } catch { return finish('failed', "Couldn't read the AI's answer. Try again."); }
+    const { spec, problem } = cleanArSpec(raw);
+    return spec ? finish('success', '', spec) : finish('failed', problem);
+  } catch (err) {
+    return finish('failed', err && err.name === 'TimeoutError' ? 'Generation took too long. Try again.' : 'Generation failed. Try again.');
+  }
+}
+
+function bytesToB64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+async function retryArModel(env, ctx, session, id, photoBase) {
+  const listing = await ownListing(env, session, id);
+  await startArModel(env, ctx, session, listing);
+  return getListing(env, session.sub, id, photoBase);
+}
+
+async function getArModel(env, id) {
+  const row = await env.DB.prepare('SELECT a.*, l.id AS lid FROM ar_models a JOIN listings l ON l.id = a.listing_id WHERE a.listing_id = ?').bind(id).first();
+  if (!row) throw new HttpError(404, 'This listing has no AR model.');
+  const ar = arOut({ ar_status: row.status, ar_error: row.error, ar_started_at: row.started_at });
+  return { ...ar, spec: ar.status === 'success' ? JSON.parse(row.spec) : null };
 }

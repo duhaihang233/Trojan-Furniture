@@ -79,7 +79,8 @@
     return {
       id: x.id, type: x.type, title: x.title, condition: x.condition, sem: x.sem, year1: x.year1, handoff: x.handoff,
       photo: x.photos[0] || null, photos: x.photos, hall: x.seller.hall, seller: x.seller.name, year: x.seller.year,
-      rating: null, rentals: 0, owner: x.mine ? 'me' : 'other', status: x.status, openToSell: x.openToSell, createdAt: x.createdAt
+      rating: null, rentals: 0, owner: x.mine ? 'me' : 'other', status: x.status, openToSell: x.openToSell, createdAt: x.createdAt,
+      ar: x.ar // AI AR model: null, or { status: 'in_progress' | 'success' | 'failed', error }
     };
   }
   function putListing(x) {
@@ -160,10 +161,19 @@
     return `<header class="topbar">${backHref ? `<a class="icon-btn" href="${backHref}" data-action="back" aria-label="Back">${I.back}</a>` : '<span class="spacer44"></span>'}<h1>${esc(title)}</h1><span class="spacer44"></span></header>`;
   }
 
+  // AI AR model status shown on listing cards and the listing page.
+  const AR_STATE = { in_progress: 'AR: In progress', success: 'AR: Success', failed: 'AR: Failed' };
+  const hasGenAr = (l) => !!(l.ar && l.ar.status === 'success');
+  function arChip(l) {
+    if (!l.ar || !AR_STATE[l.ar.status]) return '';
+    const st = l.ar.status;
+    return `<span class="ar-chip ar-${st.replace('_', '-')}">${st === 'in_progress' ? '<span class="spinner" aria-hidden="true"></span>' : (st === 'success' ? I.viewfinder : '')}${AR_STATE[st]}</span>`;
+  }
+
   function listingCard(l) {
     const h = hallById(l.hall);
     return `<a class="lcard" href="#/item/${l.id}">
-      <div class="ph"><img src="${esc(imgOf(l))}" alt="${esc(nameOf(l))}" loading="lazy"><span class="badge">${esc(l.condition)}</span></div>
+      <div class="ph"><img src="${esc(imgOf(l))}" alt="${esc(nameOf(l))}" loading="lazy"><span class="badge">${esc(l.condition)}</span>${arChip(l)}</div>
       <div class="gold"></div>
       <div class="body">
         <span class="name">${esc(nameOf(l))}</span>
@@ -280,6 +290,24 @@
     </section></div>`;
   }
 
+  // The AR button on a listing photo: the AI model when it's ready, its progress while it's being
+  // built, or the typical model for the category.
+  function arSlot(l, mine) {
+    const st = l.ar && l.ar.status;
+    if (st === 'success') return arButton(l, 'AR Preview', 'fit-btn');
+    if (st === 'in_progress') return `<span class="fit-btn ar-busy"><span class="spinner" aria-hidden="true"></span>AR: In progress</span>`;
+    if (st === 'failed' && mine) return `<button type="button" class="fit-btn" data-action="ar-start" data-id="${esc(l.id)}">AR: Failed · Retry</button>`;
+    return AR_MODELS[l.type] ? arButton(l, 'AR Preview', 'fit-btn') : '';
+  }
+  function arOwnerPanel(l) {
+    const st = l.ar && l.ar.status;
+    const has = l.photos && l.photos.length;
+    if (st === 'in_progress') return `<div class="callout">${I.sparkle}<span><b>AR: In progress.</b> Claude is building a 3D model from your photos. It usually takes under a minute; you can leave this page.</span></div>`;
+    if (st === 'success') return `<div class="callout">${I.check}<span><b>AR: Success.</b> Students can place your item in their room with AR Preview.</span></div>`;
+    if (st === 'failed') return `<div class="callout">${I.shield}<span><b>AR: Failed.</b> ${esc(l.ar.error)}</span></div><button type="button" class="btn btn-outline btn-small ar-gen" data-action="ar-start" data-id="${esc(l.id)}">${I.sparkle}Try AI Generate AR model again</button>`;
+    return has ? `<button type="button" class="btn btn-outline btn-small ar-gen" data-action="ar-start" data-id="${esc(l.id)}">${I.sparkle}AI Generate AR model</button>` : '';
+  }
+
   function itemScreen(id) {
     const l = findListing(id);
     if (!l) return `${topbar('Listing', '#/home')}<p class="empty">${server.loaded ? 'This listing is gone.' : 'Loading…'}</p>`;
@@ -299,7 +327,7 @@
     const shown = photos[Math.min(ui.photoIdx, photos.length - 1)];
     return `${topbar(nameOf(l), '#/home')}
     <div class="photo"><img src="${esc(shown)}" alt="${esc(nameOf(l))}, the seller's actual item"><span class="badge">${esc(l.condition)}</span>
-      ${AR_MODELS[l.type] ? arButton(l, 'AR Preview', 'fit-btn') : ''}
+      ${arSlot(l, mine)}
       ${mine ? '' : `<button type="button" class="icon-btn" data-action="fav" data-id="${esc(id)}" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites" style="position:absolute;top:8px;left:8px;color:var(--cardinal)">${I.heart(fav)}</button>`}</div>
     ${photos.length > 1 ? `<div class="hscroll" style="padding:10px 16px 0">${photos.map((src, i) => `<button type="button" class="thumb photo-pick ${src === shown ? 'on' : ''}" data-action="photo-idx" data-id="${i}" aria-label="Photo ${i + 1}" aria-pressed="${src === shown}"><img src="${esc(src)}" alt=""></button>`).join('')}</div>` : ''}
     <section class="section">
@@ -317,7 +345,8 @@
           ? `<button type="button" class="btn btn-cardinal btn-small" style="flex:1" data-action="resume" data-id="${esc(id)}">Show it again</button>`
           : `<button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="pause" data-id="${esc(id)}">Hide for now</button>`}
         <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="delete-listing" data-id="${esc(id)}">Delete</button>
-      </div>` : `      <span class="label">Rental length</span>
+      </div>
+      ${arOwnerPanel(l)}` : `      <span class="label">Rental length</span>
       <div class="opts" role="radiogroup" aria-label="Rental length">
         <button type="button" role="radio" class="opt ${ui.plan === 'sem' ? 'on' : ''}" aria-checked="${ui.plan === 'sem'}" data-action="plan" data-id="sem"><span><span class="t">Semester · <span style="color:var(--cardinal)">${money(l.sem)}</span></span><span class="n">Move-in to move-out</span></span></button>
         <button type="button" role="radio" class="opt ${ui.plan === 'yr' ? 'on' : ''}" aria-checked="${ui.plan === 'yr'}" data-action="plan" data-id="yr"><span><span class="t">Full year · <span style="color:var(--cardinal)">${money(l.year1)}</span></span><span class="n">Fall + spring · save ${money(l.sem * 2 - l.year1)}</span></span></button>
@@ -375,6 +404,12 @@
           ${d.photos.length < MAX_LISTING_PHOTOS ? `<label class="photo-slot add">${I.camera}Add photo<input type="file" accept="image/*" class="sr-only" data-input="photo"></label>` : ''}
         </div>
         <span class="meta">Up to ${MAX_LISTING_PHOTOS} photos of the actual item. No photo? We'll show a stock picture.</span>
+      </div>
+      <div class="field">
+        <button type="button" class="btn ${d.ar && d.photos.length ? 'btn-cardinal' : 'btn-outline'} ar-gen" data-action="ar-toggle" aria-pressed="${!!(d.ar && d.photos.length)}" ${d.photos.length ? '' : 'disabled'}>${I.sparkle}AI Generate AR model${d.ar && d.photos.length ? ' · On' : ''}</button>
+        <span class="meta">${!d.photos.length ? 'Add a photo first. Claude builds the AR model from your photos.'
+          : d.ar ? "After you publish, Claude builds a 3D model from your photos in the background, usually in under a minute. You don't have to wait: the listing goes live right away and shows the model's progress."
+          : 'Let Claude turn your photos into a 3D model, so students can place your item in their room with AR.'}</span>
       </div>
       <div class="field"><span class="label">Category</span>
         <div class="chips" role="radiogroup" aria-label="Category">${D.categories.filter((c) => c.id !== 'all').map((c) => `<button type="button" role="radio" class="chip ${D.types[d.type].cat === c.id ? 'on' : ''}" aria-checked="${D.types[d.type].cat === c.id}" data-action="sell-cat" data-id="${c.id}">${esc(c.label)}</button>`).join('')}</div></div>
@@ -563,6 +598,18 @@
     if (route === 'chat' && /^c[0-9a-f]{16}$/.test(id || '') && server.msgs[id]) fetchMessages(id).then((n) => { if (n && parse().id === id) refreshChat(false); });
   }, 4000);
   setInterval(() => { if (!document.hidden) refreshConvs(); }, 20000);
+  const arStates = () => server.listings.map((l) => l.id + ':' + (l.ar ? l.ar.status : '')).join(',');
+  setInterval(() => {
+    if (document.hidden || !AUTH.signedIn() || !server.listings.some((l) => l.ar && l.ar.status === 'in_progress')) return;
+    const before = arStates();
+    AUTH.call('/listings').then((r) => {
+      server.listings = r.listings.map(fromServer);
+      if (arStates() === before) return;
+      const { route } = parse();
+      const typing = document.activeElement && document.activeElement.matches('input, textarea, select');
+      if (['home', 'item', 'account', 'ar'].includes(route) && !typing) rerender();
+    }).catch(() => { /* try again next time */ });
+  }, 5000);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     if (Date.now() - server.at > 60000) syncFromServer(); else refreshConvs();
@@ -859,6 +906,8 @@
     const img = `<img src="${esc(imgOf(l))}" alt="">`;
     const look = cls || 'btn btn-gold';
     const icon = cls ? I.viewfinder : '';
+    // AI-made models are built in the browser, so they always open on TroShare's AR screen.
+    if (hasGenAr(l)) return `<a class="${look}" href="#/ar/${encodeURIComponent(l.id)}">${I.viewfinder}${esc(label)}</a>`;
     if (onIPhone()) {
       // AR Quick Look needs an <img> as the link's first child.
       return `<a class="${look} ar-launch" rel="ar" href="models/${l.type}.usdz#allowsContentScaling=0">${img}${esc(label)}</a>`;
@@ -875,7 +924,7 @@
     const l = findListing(id);
     if (!l) return `${topbar('Preview in AR', '#/room')}<p class="empty">This listing is gone.</p>`;
     const size = AR_MODELS[l.type];
-    if (!size) return `${topbar('Preview in AR', '#/item/' + encodeURIComponent(id))}<p class="empty">No 3D preview for this item yet.</p>`;
+    if (!size && !hasGenAr(l)) return `${topbar('Preview in AR', '#/item/' + encodeURIComponent(id))}<p class="empty">No 3D preview for this item yet.</p>`;
     const back = (room.analysis ? '#/room' : '#/item/' + encodeURIComponent(id));
     return `${topbar('Preview in AR', back)}
     <section class="section">
@@ -885,6 +934,7 @@
   }
 
   function arBody(l) {
+    if (hasGenAr(l)) return genArBody(l);
     const size = AR_MODELS[l.type];
     const id = l.id;
     const place = placementFor(l.type);
@@ -898,6 +948,39 @@
       <p class="meta">This is a typical ${esc(typeOf(l).name)}, ${esc(size)}, not a scan of the seller's photo. ${phone ? 'The camera is your phone’s rear camera. Move slowly so it can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page in Safari on your iPhone, then tap AR Preview.'}</p>
       <div class="card pad row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
         ${l.owner === 'me' ? '' : `<a class="btn btn-outline btn-small" href="#/item/${encodeURIComponent(id)}">View</a><button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>`;
+  }
+
+  // AR screen for a model Claude made from the seller's photos. setupGenAr() builds it after render.
+  function genArBody(l) {
+    const id = l.id;
+    const phone = onIPhone() || onAndroid();
+    return `<p class="sub" style="margin:0">Aim the rear camera at the floor. When a circle appears, tap it and the item sits down at real size.</p>
+      <model-viewer class="ar-stage" id="ar-model" data-gen="${esc(id)}" alt="${esc(nameOf(l))} in 3D" camera-controls auto-rotate touch-action="pan-y" shadow-intensity="1" ar ar-modes="webxr quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>
+      <span class="ar-size" id="ar-size">${I.viewfinder}Building the 3D model…</span>
+      ${phone ? `<button type="button" class="btn btn-gold" data-action="ar-activate">${I.viewfinder}Open camera and place on the floor</button>` : ''}
+      <p class="meta">Claude made this model from the seller's photos, so sizes and details are approximate. ${phone ? 'Move slowly so your phone can find the floor.' : 'This computer cannot open your phone’s camera. Open the same page on your phone, then tap AR Preview.'}</p>
+      <div class="card pad row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
+        ${l.owner === 'me' ? '' : `<a class="btn btn-outline btn-small" href="#/item/${encodeURIComponent(id)}">View</a><button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>`;
+  }
+  const arSpecs = {}; // listing id -> Promise of the model description
+  function setupGenAr() {
+    const mv = document.getElementById('ar-model');
+    const id = mv && mv.dataset.gen;
+    if (!id) return;
+    if (!arSpecs[id]) {
+      arSpecs[id] = AUTH.call('/listings/' + encodeURIComponent(id) + '/ar-model').then((r) => r.spec);
+      arSpecs[id].catch(() => delete arSpecs[id]);
+    }
+    arSpecs[id].then((spec) => window.TS_AR.model(id, spec)).then((m) => {
+      const el = document.getElementById('ar-model');
+      if (!el || el.dataset.gen !== id) return;
+      el.src = m.url;
+      const label = document.getElementById('ar-size');
+      if (label) label.innerHTML = `${I.viewfinder}Real size · ${esc(window.TS_AR.describe(m.size))}`;
+    }).catch((err) => {
+      const label = document.getElementById('ar-size');
+      if (label) label.textContent = "Couldn't load the 3D model: " + err.message;
+    });
   }
 
   function resetFit(l, id) {
@@ -1053,6 +1136,7 @@
     app.innerHTML = html;
     renderTabbar(route);
     if (route === 'fit') setupFit();
+    if (route === 'ar') setupGenAr();
     if (location.hash !== lastHash) {
       lastHash = location.hash;
       if (route === 'chat') scrollThreadEnd();
@@ -1264,6 +1348,19 @@
       case 'browse-type': ui.q = D.types[id].name; ui.searchFrom = location.hash; S.cat = 'all'; save(); location.hash = '#/search'; break;
       case 'cond': ui.draft.condition = id; rerender(); break;
       case 'rm-photo': ui.draft.photos.splice(Number(id), 1); rerender(); break;
+      case 'ar-toggle': ui.draft.ar = !ui.draft.ar; rerender(); break;
+      case 'ar-start':
+        el.disabled = true;
+        AUTH.call('/listings/' + encodeURIComponent(id) + '/ar-model', { method: 'POST' })
+          .then((r) => { putListing(r.listing); rerender(); toast('Building your AR model. You can keep browsing.'); })
+          .catch((err) => { el.disabled = false; toast(err.message); });
+        break;
+      case 'ar-activate': {
+        const mv = document.getElementById('ar-model');
+        if (!mv || !mv.src) { toast('The 3D model is still loading'); break; }
+        if (mv.canActivateAR) mv.activateAR(); else toast("This browser can't open AR. Try Safari on iPhone or Chrome on Android.");
+        break;
+      }
     }
   });
 
@@ -1350,7 +1447,7 @@
         method: 'POST',
         body: JSON.stringify({
           type: d.type, title: d.title.trim(), condition: d.condition, sem, year1: yr,
-          handoff: d.drop && d.pick ? 'both' : (d.drop ? 'drop' : 'pickup'), openToSell: d.sell,
+          handoff: d.drop && d.pick ? 'both' : (d.drop ? 'drop' : 'pickup'), openToSell: d.sell, generateAr: !!(d.ar && d.photos.length),
           photos: d.photos.map((url) => url.split(',')[1])
         })
       }).then((r) => {
