@@ -56,8 +56,8 @@ export default {
     const allowed = ALLOWED_ORIGINS.has(origin);
     const cors = {
       'Access-Control-Allow-Origin': allowed ? origin : 'null',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'content-type',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+      'Access-Control-Allow-Headers': 'content-type, authorization',
       'Access-Control-Max-Age': '600',
       Vary: 'Origin',
     };
@@ -67,12 +67,26 @@ export default {
 
     if (request.method === 'OPTIONS') return new Response(null, { status: allowed ? 204 : 403, headers: cors });
     if (!allowed) return fail(403, 'This service only works from the TroShare website.');
-    if (request.method !== 'POST' || new URL(request.url).pathname !== '/analyze-room') return fail(404, 'Not found.');
-    if (!env.ANTHROPIC_API_KEY) return fail(500, 'The room planner is not set up yet.');
 
+    // Accounts: Google sign-in restricted to verified @usc.edu accounts, then a TroShare session token.
+    const path = new URL(request.url).pathname;
+    let session;
+    try {
+      if (request.method === 'POST' && path === '/auth/google') return reply(200, await signIn(request, env));
+      session = await readSession(request, env);
+      if (!session) return fail(401, 'Please log in with your USC account.');
+      if (request.method === 'GET' && path === '/me') return reply(200, { user: publicUser(session), profile: await loadProfile(env, session.sub) });
+      if (request.method === 'PUT' && path === '/me/profile') return reply(200, { profile: await saveProfile(request, env, session) });
+      if (request.method !== 'POST' || path !== '/analyze-room') return fail(404, 'Not found.');
+    } catch (err) {
+      if (err instanceof HttpError) return fail(err.status, err.message);
+      throw err;
+    }
+
+    // Room analysis (logged-in students only).
+    if (!env.ANTHROPIC_API_KEY) return fail(500, 'The room planner is not set up yet.');
     if (env.LIMITER) {
-      const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-      const { success } = await env.LIMITER.limit({ key: ip });
+      const { success } = await env.LIMITER.limit({ key: session.sub });
       if (!success) return fail(429, "You've run a lot of analyses in a row. Wait a minute and try again.");
     }
 
@@ -132,3 +146,126 @@ export default {
     return reply(200, analysis);
   },
 };
+
+/* ---------------- Accounts ---------------- */
+
+const USC_DOMAIN = 'usc.edu';
+const SESSION_DAYS = 30;
+const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Graduate student'];
+const HALL_IDS = new Set(['webb', 'village', 'gateway', 'newnorth', 'pardee', 'parkside']);
+const GOOGLE_ISSUERS = new Set(['accounts.google.com', 'https://accounts.google.com']);
+
+class HttpError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+const enc = new TextEncoder();
+const b64urlToBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
+const bytesToB64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64urlJson = (s) => JSON.parse(new TextDecoder().decode(b64urlToBytes(s)));
+
+let googleKeyCache = null;
+async function googleKeys() {
+  if (googleKeyCache && googleKeyCache.until > Date.now()) return googleKeyCache.keys;
+  const res = await fetch('https://www.googleapis.com/oauth2/v3/certs');
+  if (!res.ok) throw new HttpError(503, "Couldn't reach Google to check your sign-in. Try again.");
+  const maxAge = Number(((res.headers.get('cache-control') || '').match(/max-age=(\d+)/) || [])[1] || 3600);
+  googleKeyCache = { keys: (await res.json()).keys, until: Date.now() + maxAge * 1000 };
+  return googleKeyCache.keys;
+}
+
+/**
+ * Verifies a Google Sign-In ID token (signature, issuer, audience, expiry) and that it belongs to a
+ * verified @usc.edu Google Workspace account. `keys` can be passed in for tests.
+ */
+export async function verifyGoogleCredential(credential, clientId, keys) {
+  const parts = String(credential || '').split('.');
+  if (parts.length !== 3) throw new HttpError(400, 'That sign-in response was not valid. Try again.');
+  const [h, p, sig] = parts;
+  let header, claims;
+  try { header = b64urlJson(h); claims = b64urlJson(p); } catch { throw new HttpError(400, 'That sign-in response was not valid. Try again.'); }
+  const jwk = (keys || await googleKeys()).find((k) => k.kid === header.kid);
+  if (header.alg !== 'RS256' || !jwk) throw new HttpError(401, "Couldn't verify your Google sign-in. Try again.");
+  const key = await crypto.subtle.importKey('jwk', { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: 'RS256', ext: true },
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64urlToBytes(sig), enc.encode(`${h}.${p}`));
+  const now = Math.floor(Date.now() / 1000);
+  if (!ok || !GOOGLE_ISSUERS.has(claims.iss) || claims.aud !== clientId || !(claims.exp > now - 60)) {
+    throw new HttpError(401, "Couldn't verify your Google sign-in. Try again.");
+  }
+  const email = String(claims.email || '').toLowerCase();
+  const verified = claims.email_verified === true || claims.email_verified === 'true';
+  if (!verified || claims.hd !== USC_DOMAIN || !email.endsWith('@' + USC_DOMAIN)) {
+    throw new HttpError(403, `Only @usc.edu accounts can use TroShare. You signed in as ${email || 'a non-USC account'}. Choose your USC Google account instead.`);
+  }
+  return {
+    sub: String(claims.sub),
+    email,
+    name: String(claims.name || email.split('@')[0]).slice(0, 80),
+    given: String(claims.given_name || claims.name || email.split('@')[0]).slice(0, 40),
+    family: String(claims.family_name || '').slice(0, 40),
+    picture: /^https:\/\/[a-z0-9.-]+\.googleusercontent\.com\//.test(claims.picture || '') ? claims.picture : '',
+  };
+}
+
+async function hmac(secret, data) {
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+  return { key, sig: new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(data))) };
+}
+
+export async function makeSessionToken(user, secret, days = SESSION_DAYS) {
+  const exp = Math.floor(Date.now() / 1000) + days * 86400;
+  const body = bytesToB64url(enc.encode(JSON.stringify({ ...user, exp })));
+  const { sig } = await hmac(secret, body);
+  return { token: `${body}.${bytesToB64url(sig)}`, exp };
+}
+
+export async function readSessionToken(token, secret) {
+  const [body, sig] = String(token || '').split('.');
+  if (!body || !sig) return null;
+  const { key } = await hmac(secret, body);
+  let ok = false;
+  try { ok = await crypto.subtle.verify('HMAC', key, b64urlToBytes(sig), enc.encode(body)); } catch { return null; }
+  if (!ok) return null;
+  const claims = b64urlJson(body);
+  return claims.exp > Math.floor(Date.now() / 1000) ? claims : null;
+}
+
+async function readSession(request, env) {
+  if (!env.SESSION_SECRET) throw new HttpError(500, 'Accounts are not set up yet.');
+  const auth = request.headers.get('Authorization') || '';
+  return auth.startsWith('Bearer ') ? readSessionToken(auth.slice(7), env.SESSION_SECRET) : null;
+}
+
+const publicUser = (s) => ({ email: s.email, name: s.name, given: s.given, family: s.family, picture: s.picture });
+
+async function loadProfile(env, sub) {
+  const saved = env.PROFILES ? await env.PROFILES.get(`profile:${sub}`, 'json') : null;
+  return { year: '', hall: '', since: null, ...(saved || {}) };
+}
+
+async function signIn(request, env) {
+  if (!env.GOOGLE_CLIENT_ID || !env.SESSION_SECRET) throw new HttpError(500, 'Accounts are not set up yet.');
+  let input;
+  try { input = await request.json(); } catch { throw new HttpError(400, 'The request was not valid JSON.'); }
+  const user = await verifyGoogleCredential(input.credential, env.GOOGLE_CLIENT_ID);
+  const profile = await loadProfile(env, user.sub);
+  if (!profile.since && env.PROFILES) {
+    profile.since = new Date().getFullYear();
+    await env.PROFILES.put(`profile:${user.sub}`, JSON.stringify(profile));
+  }
+  const { token, exp } = await makeSessionToken(user, env.SESSION_SECRET);
+  return { token, exp, user: publicUser(user), profile };
+}
+
+async function saveProfile(request, env, session) {
+  let input;
+  try { input = await request.json(); } catch { throw new HttpError(400, 'The request was not valid JSON.'); }
+  if (!YEARS.includes(input.year)) throw new HttpError(400, 'Choose your class year.');
+  if (!HALL_IDS.has(input.hall)) throw new HttpError(400, 'Choose your residence hall.');
+  const profile = { ...(await loadProfile(env, session.sub)), year: input.year, hall: input.hall };
+  if (!profile.since) profile.since = new Date().getFullYear();
+  if (!env.PROFILES) throw new HttpError(500, 'Profiles are not set up yet.');
+  await env.PROFILES.put(`profile:${session.sub}`, JSON.stringify(profile));
+  return profile;
+}
