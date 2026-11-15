@@ -49,3 +49,11 @@ new_sqlite_classes = ["ArJobs"]
 # Public OAuth client ID from Google Cloud Console; must match googleClientId in ../config.js.
 GOOGLE_CLIENT_ID = "53504650186-br07fmrs9d8apcmd502ttnd4lkjv6cua.apps.googleusercontent.com"
 # SESSION_SECRET (signs TroShare login tokens) is a Worker secret: npx wrangler secret put SESSION_SECRET
+# Web Push (push.js): the public half of TroShare's VAPID key; must match vapidPublicKey in ../config.js.
+# The private half is a Worker secret: VAPID_PRIVATE_JWK (the key as a JWK).
+VAPID_PUBLIC_KEY = "BKPuBG6sP-Q0nBVDgUqUxR5qZ1-9lUz3JnBgFtbSDkcR1V6H5EE0CMVzS6sZizDzzFu6VmW92jdapBm568f9FQw"
+VAPID_SUBJECT = "https://duhaihang233.github.io/Trojan-Furniture/"
+
+# Every day at 17:00 UTC (9 or 10 am in Los Angeles): return reminders (orders.js remindReturns).
+[triggers]
+crons = ["0 17 * * *"]

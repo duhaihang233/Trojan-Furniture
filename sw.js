@@ -1,7 +1,7 @@
 // TroShare service worker.
 // Pages, scripts and styles are network-first, so a new deploy shows up on the next load;
 // the cache is only a fallback for offline use. Images are cache-first because they rarely change.
-const CACHE = 'troshare-v30';
+const CACHE = 'troshare-v31';
 const ASSETS = [
   './', './index.html', './styles.css', './config.js', './auth.js', './data.js', './armodel.js', './app.js', './intro.js', './manifest.webmanifest',
   './vendor/model-viewer.min.js',
@@ -54,6 +54,25 @@ function remember(request, response) {
   }
   return withModelType(response, request.url);
 }
+
+// Notifications from the TroShare server (proxy/push.js): show them, and open the right screen when tapped.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'TroShare', {
+    body: d.body || '', icon: './icons/icon-192.png', badge: './icons/icon-192.png',
+    data: { url: d.url || '' }, tag: d.url || undefined, renotify: !!d.url
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const hash = (e.notification.data && e.notification.data.url) || '#/inbox';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+    const w = wins.find((c) => c.url.startsWith(self.registration.scope));
+    if (w) { w.postMessage({ type: 'open', url: hash }); return w.focus(); }
+    return self.clients.openWindow(new URL('./' + hash, self.registration.scope).href);
+  }));
+});
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;

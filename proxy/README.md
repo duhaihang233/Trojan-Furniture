@@ -1,11 +1,14 @@
 # TroShare server
 
-TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It does three jobs:
+TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It does these jobs:
 
 1. **USC sign-in.** It accepts only verified `@usc.edu` Google accounts and then issues a TroShare session token.
 2. **Student data.** It stores profiles, listings, favorites and chats, so each student's account works on any device.
 3. **AI room planner.** It calls Claude with TroShare's Anthropic API key. Visitors never need a key, and the key never reaches the browser or this repository.
 4. **AI AR models.** When a seller turns on **AI Generate AR model**, Claude describes the item in their photos as simple 3D shapes at real size ([ar.js](ar.js) has the prompt and output schema). The browser builds the model from that description with [armodel.js](../armodel.js), which uses the same shapes and textures as the built-in models. Generation takes 30–60 seconds (Claude with adaptive thinking at high effort) and runs in a Durable Object (`ArJobs` in worker.js, one per listing) from an alarm, so it keeps going after the seller's request returns and the seller never waits. After 5 minutes a stuck job shows as failed. Its status is `in_progress`, `success` or `failed`.
+
+5. **Orders, ratings and notifications** ([orders.js](orders.js)). Requests, accept/decline, handoff, returns, roommate splits and ratings, each with a chat line and a notification. A daily cron (`[triggers]` in wrangler.toml, 17:00 UTC) sends return reminders 7 days before and on the due date.
+6. **Push notifications** ([push.js](push.js)). Web Push with VAPID and aes128gcm encryption, written with WebCrypto (no dependencies). Each notification and each new chat message is pushed to the student's devices that turned notifications on.
 
 - **Live URL:** `https://troshare-room-proxy.thomas-haihang-du.workers.dev`
 - **Allowed sites:** the Worker only accepts requests from `https://duhaihang233.github.io`, plus two localhost addresses for testing. To add more, edit `ALLOWED_ORIGINS` in [worker.js](worker.js). Every endpoint except `/auth/google` and `/photos/…` requires a session.
@@ -13,7 +16,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 
   | What | Where |
   |---|---|
-  | Students, listings, favorites, chats, roommates | D1 database `troshare-db` (tables in [schema.sql](schema.sql)) |
+  | Students, listings, favorites, chats, roommates, orders, ratings, notifications, push subscriptions | D1 database `troshare-db` (tables in [schema.sql](schema.sql)) |
   | Listing photos (JPEG) | KV namespace `PHOTOS` |
   | Profiles from before the database existed | KV namespace `PROFILES`, copied into D1 the first time each student shows up |
 
@@ -25,7 +28,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | Method and path | What it does |
 |---|---|
 | `POST /auth/google` | Exchanges a Google ID token for a TroShare session (USC accounts only) |
-| `GET /me` | Your account, profile and favorites |
+| `GET /me` | Your account, profile, favorites and rating |
 | `PUT /me/profile` | Saves your class year and hall |
 | `GET /listings` | Everyone's available listings, plus all of yours |
 | `POST /listings` | Publishes a listing (photos sent as base64 JPEG) |
@@ -36,6 +39,14 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
 | `POST /roommates` | Invites a roommate by `email` (@usc.edu only) |
 | `POST /roommates/:id/accept` | Accepts an invite sent to your email |
 | `DELETE /roommates/:id` | Cancels, declines or removes a roommate |
+| `GET /orders` | Your orders as renter, seller or roommate asked to split |
+| `POST /orders` | Requests to rent (`kind: "rent"`, `plan`) or buy (`kind: "buy"`) a listing, with `handoff`, an optional `note`, and `splitWith` (a roommate id) |
+| `POST /orders/:id/:action` | `accept`, `decline` (seller); `cancel`, `handoff`, `return` (renter); `returned` (seller); `split-accept`, `split-decline` (roommate) |
+| `POST /orders/:id/review` | Rates the other student once the order is finished (`stars` 1–5, optional `text`) |
+| `GET /notifications` | Your latest 50 notifications and the unread count (also sends any due return reminders) |
+| `POST /notifications/read` | Marks them all read |
+| `POST` / `DELETE /push/subscribe` | Saves or removes this device's push subscription |
+| `POST /push/test` | Sends a test notification to your devices |
 | `GET /conversations` | Your chats, with the latest message and unread count |
 | `POST /conversations` | Opens (or reopens) the chat with a listing's owner |
 | `GET /conversations/:id/messages?after=N` | Messages newer than `N` (the app polls every 4 s); marks them read |
@@ -55,6 +66,7 @@ npx wrangler d1 execute troshare-db --remote --file schema.sql   # create tables
 npx wrangler d1 execute troshare-db --remote --command "SELECT email, year, hall FROM users"   # look at the data
 npx wrangler secret put ANTHROPIC_API_KEY                        # replace the room planner's API key (paste it when asked)
 npx wrangler secret put ANTHROPIC_AR_KEY                         # replace the AR model generator's API key
+npx wrangler secret put VAPID_PRIVATE_JWK                        # push key (private JWK); its public half is VAPID_PUBLIC_KEY in wrangler.toml and config.js
 npx wrangler tail                                                # watch live requests and errors
 
 # Local testing, with a local database (create its tables first with --local instead of --remote):

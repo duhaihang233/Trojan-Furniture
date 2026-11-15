@@ -34,7 +34,7 @@
 
   // Data on the TroShare server: every student's listings, your favorites, and your chats with other
   // students (msgs holds the loaded messages of each chat, by chat id).
-  const server = { listings: [], favorites: [], convs: [], msgs: {}, roommates: [], loaded: false, loading: false, error: null, at: 0 };
+  const server = { listings: [], favorites: [], convs: [], msgs: {}, roommates: [], orders: [], ordersLoaded: false, notes: [], unreadNotes: 0, rating: null, loaded: false, loading: false, error: null, at: 0 };
   const MAX_LISTING_PHOTOS = 4;
 
   /* ---------- helpers ---------- */
@@ -83,7 +83,7 @@
     return {
       id: x.id, type: x.type, title: x.title, condition: x.condition, sem: x.sem, year1: x.year1, handoff: x.handoff,
       photo: x.photos[0] || null, photos: x.photos, hall: x.seller.hall, seller: x.seller.name, year: x.seller.year,
-      rating: null, rentals: 0, owner: x.mine ? 'me' : 'other', status: x.status, openToSell: x.openToSell, buyPrice: x.buyPrice || null, createdAt: x.createdAt,
+      rating: typeof x.seller.rating === 'number' ? x.seller.rating : null, reviews: x.seller.reviews || 0, rentals: 0, owner: x.mine ? 'me' : 'other', status: x.status, openToSell: x.openToSell, buyPrice: x.buyPrice || null, createdAt: x.createdAt,
       ar: x.ar // AI AR model: null, or { status: 'in_progress' | 'success' | 'failed', error }
     };
   }
@@ -103,8 +103,11 @@
     if (loadingServer) return loadingServer;
     server.loading = true; server.error = null;
     loadingServer = (async () => {
-      const [l, me, c, rm] = await Promise.allSettled([AUTH.call('/listings'), AUTH.refresh(), AUTH.call('/conversations'), AUTH.call('/roommates')]);
+      const [l, me, c, rm, od, nt] = await Promise.allSettled([AUTH.call('/listings'), AUTH.refresh(), AUTH.call('/conversations'), AUTH.call('/roommates'), AUTH.call('/orders'), AUTH.call('/notifications')]);
       if (rm.status === 'fulfilled') server.roommates = rm.value.roommates;
+      if (od.status === 'fulfilled') { server.orders = od.value.orders; server.ordersLoaded = true; }
+      if (nt.status === 'fulfilled') setNotes(nt.value);
+      if (me.status === 'fulfilled' && me.value) server.rating = me.value.rating || null;
       if (l.status === 'fulfilled') { server.listings = l.value.listings.map(fromServer); server.loaded = true; server.at = Date.now(); }
       if (me.status === 'fulfilled' && me.value) server.favorites = me.value.favorites || [];
       if (c.status === 'fulfilled') server.convs = c.value.conversations;
@@ -144,8 +147,9 @@
   function activeRentalFor(listingId) {
     return S.rentals.find((r) => r.listingId === listingId && r.status !== 'Returned');
   }
+  const unreadChats = () => S.threads.reduce((n, t) => n + (t.unread || 0), 0) + server.convs.reduce((n, c) => n + (c.unread || 0), 0);
   function unreadCount() {
-    return S.threads.reduce((n, t) => n + (t.unread || 0), 0) + server.convs.reduce((n, c) => n + (c.unread || 0), 0);
+    return unreadChats() + server.unreadNotes;
   }
 
   function toast(msg) {
@@ -221,11 +225,12 @@
       ['home', '#/home', I.home, 'Home'], ['room', '#/room', I.sparkle, 'Room Preview'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
-    const active = { browse: 'home', search: 'home', item: 'home', cart: 'home', checkout: 'home', edit: 'account', profile: 'account', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
+    const active = { browse: 'home', search: 'home', item: 'home', cart: 'home', checkout: 'home', edit: 'account', profile: 'account', order: 'account', guide: 'account', chat: 'inbox', fit: 'room', ar: 'room' }[route] || route;
     const n = unreadCount();
+    const todo = ordersTodo();
     const prev = tabbar.querySelector('a.on')?.getAttribute('href');
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
-      `<a href="${href}" class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''}>${icon}${label}${id === 'inbox' && n ? `<span class="dot" aria-label="${n} unread">${n}</span>` : ''}</a>`
+      `<a href="${href}" class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''}>${icon}${label}${id === 'inbox' && n ? `<span class="dot" aria-label="${n} unread">${n}</span>` : ''}${id === 'account' && todo ? `<span class="dot" aria-label="${todo} orders need you">${todo}</span>` : ''}</a>`
     ).join('');
     const now = tabbar.querySelector('a.on');
     if (now && now.getAttribute('href') !== prev) now.classList.add('pop');
@@ -372,7 +377,7 @@
     }
     const h = hallById(l.hall);
     const mine = l.owner === 'me';
-    const renting = activeRentalFor(id);
+    const myOrder = server.orders.find((o) => o.listingId === id && o.role === 'renter' && OPEN_ORDER.includes(o.status));
     const fav = server.favorites.includes(id);
     const canDrop = l.handoff !== 'pickup', canPick = l.handoff !== 'drop';
     const buying = forSale(l) && ui.mode === 'buy';
@@ -392,14 +397,14 @@
       <div class="card pad row">
         <span class="${avClass(l.seller)}">${esc(initial(l.seller))}</span>
         <span class="grow"><span class="row" style="gap:6px;font-weight:700">${esc(l.seller)}${mine ? ' (you)' : ''} ${I.verified}</span>
-          <span class="meta">${esc(l.year)} · Verified USC student · ${stars(l)}${l.rentals ? ' · ' + l.rentals + ' rentals' : ''}</span>
+          <span class="meta">${esc(l.year)} · Verified USC student · ${stars(l)}${l.reviews ? ' · ' + l.reviews + ' review' + (l.reviews > 1 ? 's' : '') : (l.rentals ? ' · ' + l.rentals + ' rentals' : '')}</span>
           <span class="where">${I.pin}${esc(h.name)} · ${esc(h.walk)}</span></span>
         ${mine ? '' : `<button type="button" class="btn btn-outline btn-small" data-action="message" data-id="${esc(id)}">Message</button>`}
       </div>
-      ${mine ? `<div class="callout">${I.shield}<span>${l.status === 'paused' ? '<b>Hidden.</b> Other students can’t see this listing until you show it again.' : 'This is your listing. It\'s visible to verified USC students. Manage it from <a href="#/account">My Account</a>.'}</span></div>
+      ${mine ? `<div class="callout">${I.shield}<span>${l.status === 'rented' ? '<b>Rented out.</b> It’s off the market until it comes back. Follow it under My Account → Orders.' : l.status === 'sold' ? '<b>Sold.</b> Other students can’t see it any more.' : l.status === 'paused' ? '<b>Hidden.</b> Other students can’t see this listing until you show it again.' : 'This is your listing. It\'s visible to verified USC students. Manage it from <a href="#/account">My Account</a>.'}</span></div>
       <button type="button" class="btn btn-cardinal btn-small" data-action="edit-listing" data-id="${esc(id)}">Edit listing</button>
       <div class="row" style="gap:8px">
-        ${l.status === 'paused'
+        ${l.status === 'rented' || l.status === 'sold' ? '' : l.status === 'paused'
           ? `<button type="button" class="btn btn-cardinal btn-small" style="flex:1" data-action="resume" data-id="${esc(id)}">Show it again</button>`
           : `<button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="pause" data-id="${esc(id)}">Hide for now</button>`}
         <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="delete-listing" data-id="${esc(id)}">Delete</button>
@@ -419,13 +424,13 @@
         <button type="button" role="radio" class="opt ${ui.hand === 'drop' ? 'on' : ''}" aria-checked="${ui.hand === 'drop'}" data-action="hand" data-id="drop" ${canDrop ? '' : 'disabled'}>${I.truck}<span><span class="t">Delivered</span><span class="n">${canDrop ? 'To your hall lobby' : 'Not offered'}</span></span></button>
         <button type="button" role="radio" class="opt ${ui.hand === 'pick' ? 'on' : ''}" aria-checked="${ui.hand === 'pick'}" data-action="hand" data-id="pick" ${canPick ? '' : 'disabled'}>${I.pin}<span><span class="t">Pickup</span><span class="n">${canPick ? esc(D.pickupSpots[l.hall]) : 'Not offered'}</span></span></button>
       </div>
-      ${buying ? '' : `<label class="switch-row"><span><span style="font-weight:600;display:block">Split with ${esc(roommateFirst() || 'my roommate')}</span><span class="meta">They get an invite to pay half</span></span><input type="checkbox" data-action="split" ${ui.split ? 'checked' : ''}></label>`}`}
+      ${buying ? '' : splitToggle('split', ui.split)}`}
     </section>
     ${mine ? '' : `<div class="paybar">
       <div class="row"><div style="display:flex;flex-direction:column"><span class="big-price">${money(pay)}</span><span class="meta">${buying ? 'to buy' : (ui.split ? 'your half, ' : '') + (ui.plan === 'sem' ? 'per semester' : 'per year')}</span></div>
-      ${renting ? `<a class="btn btn-outline" href="#/chat/${renting.thread}" style="flex:1">${renting.kind === 'buy' ? 'You bought this' : "You're renting this"}</a>`
+      ${myOrder ? `<a class="btn btn-outline" href="#/order/${esc(myOrder.id)}" style="flex:1">Your order · ${esc(orderStatus(myOrder)[0])}</a>`
         : `<div class="buy-btns">${sameAsCart ? `<a class="btn btn-outline" href="#/cart">${I.check}In cart</a>` : `<button type="button" class="btn btn-outline" data-action="add-cart" data-id="${esc(id)}">${carted ? 'Update cart' : 'Add to cart'}</button>`}<button type="button" class="btn btn-cardinal" data-action="buy-now" data-id="${esc(id)}">${buying ? 'Buy now' : 'Rent now'}</button></div>`}</div>
-      <span class="note">Pick a time with ${esc(l.seller.split(' ')[0])} in chat. Payment is held until you get it.</span>
+      <span class="note">${esc(l.seller.split(' ')[0])} accepts or declines, then you pick a time in chat. You pay at the handoff.</span>
     </div>`}`;
   }
 
@@ -463,7 +468,10 @@
       return `${topbar('Checkout', back)}<div class="empty"><p>Nothing to check out yet.</p><a class="btn btn-cardinal" href="#/home" style="max-width:280px;margin:0 auto">Browse listings</a></div>`;
     }
     const total = rows.reduce((n, { c, l }) => n + entryPrice(c, l), 0);
-    const pay = ui.splitCart ? total / 2 : total;
+    const rents = rows.filter(({ c }) => modeOf(c) === 'rent');
+    const splitting = ui.splitCart && rents.length && !!splitMate();
+    // Splitting halves the rentals; anything you're buying is yours alone.
+    const pay = splitting ? rows.reduce((n, { c, l }) => n + (modeOf(c) === 'rent' ? half(entryPrice(c, l)) : entryPrice(c, l)), 0) : total;
     const buys = rows.filter(({ c }) => modeOf(c) === 'buy').length;
     const verb = buys === rows.length ? 'Buy' : (buys ? 'Check out' : 'Rent');
     return `${topbar('Checkout', back)}
@@ -477,13 +485,13 @@
         </div>`;
       }).join('')}
       <div class="card pad" style="display:flex;flex-direction:column;gap:8px">
-        <label class="switch-row"><span><span style="font-weight:600;display:block">Split with ${esc(roommateFirst() || 'my roommate')}</span><span class="meta">Invite sent to their USC email</span></span><input type="checkbox" data-action="split-cart" ${ui.splitCart ? 'checked' : ''}></label>
-        <div class="callout">${I.shield}<span>Sellers are paid only after you tap <b>“Got it”</b> at handoff. Snap a condition photo then, and again when you return it.</span></div>
+        ${rents.length ? splitToggle('split-cart', ui.splitCart) : ''}
+        <div class="callout">${I.shield}<span>The seller accepts or declines first. You pay them at the handoff, after you've checked the item, and then tap <b>“Got it”</b> on your order.</span></div>
       </div>
     </section>
     <div class="paybar">
-      <div class="row" style="justify-content:space-between"><span style="font-weight:600">${ui.splitCart ? 'You pay (half)' : 'Total'}</span><span class="big-price">${money(pay)}</span></div>
-      <button type="button" class="btn btn-cardinal" data-action="place">${verb} ${rows.length} item${rows.length > 1 ? 's' : ''}</button>
+      <div class="row" style="justify-content:space-between"><span style="font-weight:600">${splitting ? 'You pay (your half)' : 'Total'}</span><span class="big-price">${money(pay)}</span></div>
+      <button type="button" class="btn btn-cardinal" data-action="place">Request to ${verb.toLowerCase().replace('check out', 'order')} ${rows.length} item${rows.length > 1 ? 's' : ''}</button>
     </div>`;
   }
 
@@ -575,8 +583,20 @@
       return { id: t.id, with: t.with, unread: t.unread || 0, role: t.role, last: last ? (last.from === 'me' ? 'You: ' : '') + last.text : '', at: 0 };
     });
     const ts = real.concat(local).sort((a, b) => (b.unread > 0) - (a.unread > 0) || b.at - a.at);
+    const tab = ui.inboxTab === 'activity' ? 'activity' : 'chats';
+    const nc = unreadChats();
+    const tabs = `<div class="tabs2" role="tablist" aria-label="Inbox">
+        <button type="button" role="tab" class="${tab === 'chats' ? 'on' : ''}" aria-selected="${tab === 'chats'}" data-action="inbox-tab" data-id="chats">Chats${nc ? ` (${nc})` : ''}</button>
+        <button type="button" role="tab" class="${tab === 'activity' ? 'on' : ''}" aria-selected="${tab === 'activity'}" data-action="inbox-tab" data-id="activity">Activity${server.unreadNotes ? ` (${server.unreadNotes})` : ''}</button></div>`;
+    if (tab === 'activity') {
+      return `${topbar('Inbox')}
+    <section class="section">${tabs}
+      ${ui.push === 'on' ? '' : pushCard(true)}
+      ${activityList()}
+    </section>`;
+    }
     return `${topbar('Inbox')}
-    <section class="section">
+    <section class="section">${tabs}
       ${ts.length ? `<div class="card" style="padding:0 14px">${ts.map((t) => `<a class="list-row" href="#/chat/${t.id}">
           <span class="${avClass(t.with)}">${esc(initial(t.with))}</span>
           <span class="grow"><span style="font-weight:700">${esc(t.with)}</span><span class="meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.last)}</span></span>
@@ -621,16 +641,14 @@
     if (msgs === undefined) fetchMessages(id).then(() => { if (parse().id === id) refreshChat(true); });
     if (!c) return `${topbar('Chat', '#/inbox')}<p class="empty">${msgs === undefined ? 'Loading…' : 'Conversation not found.'}</p>`;
     const first = c.with.name.split(' ')[0];
-    const r = S.rentals.find((x) => x.thread === id);
+    const o = server.orders.filter((x) => x.convId === id).sort((a, b) => b.updatedAt - a.updatedAt)[0];
     const l = findListing(c.listing.id);
     const thumb = (l && imgOf(l)) || c.listing.photo || D.types[c.listing.type].img;
     let card;
-    if (r) {
-      card = `<div class="card pad" style="margin:12px 16px 0;display:flex;flex-direction:column;gap:10px">
-        <div class="row"><span class="thumb"><img src="${esc(thumb)}" alt=""></span><span class="grow"><span class="t-serif">${esc(c.listing.title)} · ${r.plan === 'sem' ? 'Semester' : 'Full year'}</span><span class="meta">${esc(r.when)} · ${esc(r.where)}</span></span><span class="badge ${r.status === 'Returned' ? 'gray' : ''}">${esc(r.status)}</span></div>
-        ${r.status === 'Scheduled' ? `<button type="button" class="btn btn-cardinal" data-action="confirm" data-id="${r.id}">Got it — confirm handoff</button>` : ''}
-        ${r.status === 'Active' ? `<div class="callout">${I.check}<span><b>Handoff confirmed.</b> ${esc(first)} has been paid. Return it by move-out in May.</span></div>` : ''}
-      </div>`;
+    if (o) {
+      const [label, cls] = orderStatus(o);
+      const todo = orderTodo(o);
+      card = `<a class="card pad row chat-order" href="#/order/${esc(o.id)}" style="margin:12px 16px 0;text-decoration:none;color:inherit"><span class="thumb"><img src="${esc(thumb)}" alt=""></span><span class="grow"><span class="t-serif">${esc(o.title)}</span><span class="meta">${esc(orderLine(o))}</span>${todo ? `<span class="todo">${esc(todo)} →</span>` : '<span class="meta">View order →</span>'}</span><span class="badge ${cls}">${esc(label)}</span></a>`;
     } else {
       card = `<${l ? `a href="#/item/${esc(l.id)}"` : 'div'} class="card pad row" style="margin:12px 16px 0;text-decoration:none;color:inherit"><span class="thumb"><img src="${esc(thumb)}" alt=""></span><span class="grow"><span class="t-serif">${esc(c.listing.title)}</span><span class="meta">${c.role === 'selling' ? 'Your listing · ' + money(c.listing.sem) + ' per semester' : money(c.listing.sem) + ' per semester · ask ' + esc(first) + ' anything'}</span></span>${c.role === 'selling' ? '<span class="badge red">Your listing</span>' : ''}</${l ? 'a' : 'div'}>`;
     }
@@ -729,7 +747,7 @@
     const { route, id } = parse();
     if (route === 'chat' && /^c[0-9a-f]{16}$/.test(id || '') && server.msgs[id]) fetchMessages(id).then((n) => { if (n && parse().id === id) refreshChat(false); });
   }, 4000);
-  setInterval(() => { if (!document.hidden) refreshConvs(); }, 20000);
+  setInterval(() => { if (!document.hidden) { refreshConvs(); refreshOrders(); refreshNotes(); } }, 20000);
   // Keeps listings fresh while the app is open: new listings from other students show up within
   // ~20 s, and an AR model being built is checked every 5 s so its status updates on its own.
   const listingStates = () => server.listings.map((l) => [l.id, l.status, l.sem, l.title, l.ar ? l.ar.status : ''].join(':')).join(',');
@@ -753,6 +771,301 @@
     if (Date.now() - server.at > 60000) syncFromServer(); else refreshConvs();
   });
 
+  /* ---------- orders: rent or buy, accept/decline, handoff, return, ratings (server, orders.js) ---------- */
+  const OPEN_ORDER = ['requested', 'accepted', 'active', 'return_requested'];
+  const half = (n) => Math.round(n / 2 * 100) / 100;
+  const fmtDate = (iso) => (iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '');
+  function daysLeft(iso) {
+    const t = new Date();
+    return Math.round((Date.parse(iso + 'T00:00:00Z') - Date.UTC(t.getFullYear(), t.getMonth(), t.getDate())) / 86400000);
+  }
+  function ago(ts) {
+    const m = Math.round((Date.now() - ts) / 60000);
+    if (m < 1) return 'Just now';
+    if (m < 60) return m + ' min ago';
+    if (m < 60 * 24) return Math.round(m / 60) + ' h ago';
+    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  const firstName = (n) => String(n || '').split(' ')[0];
+  function orderStatus(o) {
+    const seller = o.role === 'seller';
+    return ({
+      requested: seller ? ['New request', 'red'] : ['Requested', ''],
+      accepted: ['Accepted', ''],
+      declined: ['Declined', 'gray'],
+      canceled: ['Canceled', 'gray'],
+      active: [seller ? 'Rented out' : 'Renting', ''],
+      return_requested: ['Return pending', 'red'],
+      completed: [o.kind === 'buy' ? (seller ? 'Sold' : 'Bought') : 'Returned', 'gray']
+    })[o.status] || [o.status, 'gray'];
+  }
+  // What this student should do next on an order ('' if nothing).
+  function orderTodo(o) {
+    if (o.role === 'roommate') return o.split && o.split.status === 'pending' && OPEN_ORDER.includes(o.status) ? 'Answer the split request' : '';
+    if (o.role === 'seller' && o.status === 'requested') return 'Accept or decline';
+    if (o.role === 'renter' && o.status === 'accepted') return 'Tap “Got it” when you get it';
+    if (o.role === 'seller' && o.status === 'return_requested') return 'Confirm it’s back';
+    if (o.role === 'renter' && o.status === 'active' && o.returnBy && daysLeft(o.returnBy) <= 7) return 'Return it by ' + fmtDate(o.returnBy);
+    if (o.status === 'completed' && !o.myReview) return 'Rate ' + firstName(o.role === 'seller' ? o.renter.name : o.seller.name);
+    return '';
+  }
+  function ordersTodo() { return server.orders.filter((o) => orderTodo(o)).length; }
+  const orderPhoto = (o) => o.photo || (D.types[o.type] && D.types[o.type].img) || '';
+  function orderLine(o) {
+    const what = o.kind === 'buy' ? 'Buy' : (o.plan === 'sem' ? 'Semester' : 'Full year');
+    if (o.role === 'seller') return `${o.renter.name} · ${what} · ${money(o.price)}`;
+    if (o.role === 'roommate') return `Split with ${o.renter.name} · your half ${money(half(o.price))}`;
+    return `From ${o.seller.name} · ${what} · ${money(o.price)}${o.split && o.split.status === 'accepted' ? ' (split)' : ''}`;
+  }
+  function ordersList() {
+    const list = server.orders.slice().sort((a, b) => (orderTodo(b) ? 1 : 0) - (orderTodo(a) ? 1 : 0) || b.updatedAt - a.updatedAt);
+    return list.map((o) => {
+      const [label, cls] = orderStatus(o);
+      const todo = orderTodo(o);
+      const role = o.role === 'seller' ? (o.kind === 'buy' ? 'Selling' : 'Renting out') : (o.role === 'roommate' ? 'Roommate split' : (o.kind === 'buy' ? 'Buying' : 'Renting'));
+      return `<a class="list-row order-row" href="#/order/${esc(o.id)}"><span class="thumb"><img src="${esc(orderPhoto(o))}" alt=""></span><span class="grow"><span class="t-serif">${esc(o.title)}</span><span class="meta"><b>${role}</b> · ${esc(orderLine(o))}</span>${todo ? `<span class="todo">${esc(todo)}</span>` : ''}</span><span class="badge ${cls}">${esc(label)}</span></a>`;
+    }).join('');
+  }
+  function putOrder(o) {
+    const i = server.orders.findIndex((x) => x.id === o.id);
+    if (i >= 0) server.orders[i] = o; else server.orders.unshift(o);
+    return o;
+  }
+  const stars5 = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
+
+  function orderScreen(id) {
+    const o = server.orders.find((x) => x.id === id);
+    if (!o) {
+      if (!server.ordersLoaded) refreshOrders().then(() => { if (parse().id === id) rerender(); });
+      return `${topbar('Order', '#/account')}<p class="empty">${server.ordersLoaded ? 'This order isn’t on your account.' : 'Loading…'}</p>`;
+    }
+    const [label, cls] = orderStatus(o);
+    const rent = o.kind === 'rent';
+    const other = o.role === 'seller' ? o.renter : o.seller;
+    const otherFirst = firstName(other.name);
+    const flow = ['requested', 'accepted', 'active', 'return_requested', 'completed'];
+    const at = flow.indexOf(o.status);
+    const steps = rent ? [['requested', 'Requested'], ['accepted', 'Accepted'], ['active', 'Handed off'], ['completed', 'Returned']]
+      : [['requested', 'Requested'], ['accepted', 'Accepted'], ['completed', 'Handed off']];
+    const stepper = at < 0
+      ? `<div class="callout">${I.shield}<span>${o.status === 'declined' ? (o.role === 'seller' ? 'You declined this request.' : `${esc(firstName(o.seller.name))} declined this request. Try another listing.`) : 'This request was canceled.'}</span></div>`
+      : `<ol class="steps" aria-label="Order progress">${steps.map(([st, t]) => `<li class="${at >= flow.indexOf(st) ? 'done' : ''} ${o.status === st || (st === 'active' && o.status === 'return_requested') ? 'now' : ''}"><span class="dotc">${at >= flow.indexOf(st) ? I.check : ''}</span>${t}</li>`).join('')}</ol>`;
+    const pickupSpot = D.pickupSpots[o.seller.hall] || (hallById(o.seller.hall).name + ' lobby');
+    const where = o.handoff === 'drop' ? (o.role === 'seller' ? `Delivery to ${esc(firstName(o.renter.name))}'s hall lobby` : 'Delivered to ' + esc(myLobby())) : 'Pickup at ' + esc(pickupSpot);
+    const dl = rent && o.returnBy ? daysLeft(o.returnBy) : null;
+    const due = rent && o.returnBy ? `<span class="meta"><b>${o.status === 'completed' ? 'Was due' : 'Due back'} ${esc(fmtDate(o.returnBy))}</b>${['active', 'return_requested'].includes(o.status) ? ` · ${dl > 0 ? dl + ' day' + (dl === 1 ? '' : 's') + ' left' : (dl === 0 ? 'today' : 'overdue')}` : ''} · around move-out</span>` : '';
+    let split = '';
+    if (o.split) {
+      const st = { pending: 'waiting for an answer', accepted: 'agreed to pay half', declined: 'said no' }[o.split.status] || o.split.status;
+      split = o.role === 'roommate'
+        ? `<div class="callout">${I.people}<span><b>${esc(o.renter.name)}</b> asked you to split this. Your half is <b>${money(half(o.price))}</b>${o.split.status === 'pending' ? '.' : ' · you ' + (o.split.status === 'accepted' ? 'said yes.' : 'said no.')}</span></div>`
+        : `<span class="meta">${I.people.replace('<svg', '<svg width="14" height="14"')} Split with ${esc(o.split.name)}: ${st}${o.split.status === 'accepted' ? ` · each pays ${money(half(o.price))}` : ''}</span>`;
+    }
+    const act = (a, text, style) => `<button type="button" class="btn ${style || 'btn-cardinal'}" data-action="order-act" data-act="${a}" data-id="${esc(o.id)}">${text}</button>`;
+    const acts = [];
+    if (o.role === 'roommate' && o.split && o.split.status === 'pending' && OPEN_ORDER.includes(o.status)) acts.push(act('split-accept', 'Split it with ' + esc(firstName(o.renter.name))), act('split-decline', 'No thanks', 'btn-outline'));
+    if (o.role === 'seller' && o.status === 'requested') acts.push(act('accept', 'Accept'), act('decline', 'Decline', 'btn-outline'));
+    if (o.role === 'renter' && o.status === 'accepted') acts.push(act('handoff', 'Got it — confirm handoff'));
+    if (o.role === 'renter' && o.status === 'active') acts.push(act('return', 'I returned it', dl !== null && dl <= 7 ? 'btn-cardinal' : 'btn-outline'));
+    if (o.role === 'seller' && ['active', 'return_requested'].includes(o.status)) acts.push(act('returned', 'Got it back', o.status === 'return_requested' ? 'btn-cardinal' : 'btn-outline'));
+    if (o.role === 'renter' && ['requested', 'accepted'].includes(o.status)) acts.push(act('cancel', 'Cancel request', 'btn-outline'));
+    if (o.role === 'seller' && o.status === 'accepted') acts.push(act('decline', "Can't do it after all", 'btn-outline'));
+    const hint = {
+      requested: o.role === 'seller' ? `Accept to promise it to ${esc(firstName(o.renter.name))}. Other requests for this item are declined automatically.` : `${esc(otherFirst)} will accept or decline. You'll get a notification.`,
+      accepted: o.role === 'renter' ? `Pick a time with ${esc(otherFirst)} in chat. Pay at the handoff, after you've checked the item, then tap “Got it”.` : `Pick a time with ${esc(otherFirst)} in chat. They tap “Got it” at the handoff.`,
+      active: o.role === 'renter' ? `It's yours until ${esc(fmtDate(o.returnBy))}. We'll remind you a week before.` : `${esc(otherFirst)} returns it by ${esc(fmtDate(o.returnBy))}. Tap “Got it back” when you have it.`,
+      return_requested: o.role === 'renter' ? `Waiting for ${esc(otherFirst)} to confirm it's back.` : `${esc(otherFirst)} says they returned it. Confirm once you have it.`
+    }[o.status];
+    // Ratings, once it's done.
+    let rating = '';
+    if (o.status === 'completed' && o.role !== 'roommate') {
+      const mine = o.myReview
+        ? `<p class="meta" style="margin:0">You rated ${esc(otherFirst)} <span class="stars">${stars5(o.myReview.stars)}</span>${o.myReview.text ? ` · “${esc(o.myReview.text)}”` : ''}</p>`
+        : (() => {
+          const r = ui.rate && ui.rate.id === o.id ? ui.rate : { stars: 0, text: '' };
+          return `<div class="rate-form"><span style="font-weight:700">How was ${o.role === 'seller' ? (rent ? 'renting to' : 'selling to') : (rent ? 'renting from' : 'buying from')} ${esc(otherFirst)}?</span>
+            <div class="star-row" role="radiogroup" aria-label="Rating">${[1, 2, 3, 4, 5].map((n) => `<button type="button" role="radio" aria-checked="${r.stars === n}" aria-label="${n} star${n > 1 ? 's' : ''}" class="star ${n <= r.stars ? 'on' : ''}" data-action="rate-star" data-order="${esc(o.id)}" data-id="${n}">★</button>`).join('')}</div>
+            <textarea class="input" rows="2" maxlength="300" placeholder="Anything other students should know? (optional)" data-input="rate-text" data-order="${esc(o.id)}">${esc(r.text)}</textarea>
+            <button type="button" class="btn btn-cardinal" data-action="rate-send" data-id="${esc(o.id)}" ${r.stars ? '' : 'disabled'}>Post rating</button></div>`;
+        })();
+      const theirs = o.theirReview ? `<p class="meta" style="margin:0">${esc(otherFirst)} rated you <span class="stars">${stars5(o.theirReview.stars)}</span>${o.theirReview.text ? ` · “${esc(o.theirReview.text)}”` : ''}</p>` : '';
+      rating = `<div class="card pad stack"><h2 class="h2" style="font-size:20px">Ratings</h2>${mine}${theirs}</div>`;
+    }
+    return `${topbar('Order', '#/account')}
+    <section class="section">
+      <div class="card pad stack">
+        <div class="row" style="gap:12px"><span class="thumb"><img src="${esc(orderPhoto(o))}" alt=""></span><span class="grow"><span class="t-serif" style="font-size:18px">${esc(o.title)}</span><span class="meta">${rent ? (o.plan === 'sem' ? 'Rent · Semester' : 'Rent · Full year') : 'Buy'} · <b>${money(o.price)}</b></span></span><span class="badge ${cls}">${esc(label)}</span></div>
+        <span class="meta">${o.role === 'seller' ? `${rent ? 'Renter' : 'Buyer'}: <b>${esc(o.renter.name)}</b>` : `Seller: <b>${esc(o.seller.name)}</b>`}${o.role === 'roommate' ? ` · Requested by <b>${esc(o.renter.name)}</b>` : ''}</span>
+        <span class="meta">${where}</span>
+        ${due}
+        ${split}
+      </div>
+      ${stepper}
+      ${hint ? `<p class="sub" style="margin:0">${hint}</p>` : ''}
+      ${acts.length ? `<div class="order-acts">${acts.join('')}</div>` : ''}
+      ${o.convId ? `<a class="btn btn-outline" href="#/chat/${esc(o.convId)}">${I.chat.replace('<svg', '<svg width="18" height="18"')} Message ${esc(otherFirst)}</a>` : ''}
+      ${rating}
+      ${l0(o)}
+    </section>`;
+  }
+  // Link back to the listing while it's still up.
+  const l0 = (o) => (findListing(o.listingId) && o.role !== 'seller' ? `<a class="link" href="#/item/${esc(o.listingId)}" style="text-align:center">See the listing</a>` : '');
+
+  const ORDER_TOAST = {
+    accept: 'Accepted. Pick a time in chat', decline: 'Request declined', cancel: 'Request canceled', handoff: 'Handoff confirmed',
+    return: 'Marked as returned. Waiting for the seller to confirm', returned: 'Return confirmed. Thanks!',
+    'split-accept': "You're splitting it", 'split-decline': 'Split declined'
+  };
+  function refreshOrders() {
+    if (!AUTH.signedIn() || AUTH.needsSetup()) return Promise.resolve();
+    return AUTH.call('/orders').then((r) => {
+      const changed = JSON.stringify(r.orders) !== JSON.stringify(server.orders);
+      server.orders = r.orders; server.ordersLoaded = true;
+      if (!changed) return;
+      const { route } = parse();
+      const typing = document.activeElement && document.activeElement.matches('input, textarea');
+      if (route === 'chat') refreshChat(false);
+      else if (['account', 'order', 'item'].includes(route) && !typing) rerender();
+      else renderTabbar(route);
+    }).catch(() => { /* try again next time */ });
+  }
+
+  function ratingCard() {
+    const r = server.rating;
+    if (!r || !r.count) {
+      return `<div class="card pad stack"><div class="section-head"><h2 class="h2" style="font-size:20px">My rating</h2></div>
+        <p class="meta" style="margin:0;font-size:13px">No ratings yet. When a rental or sale is finished, you and the other student rate each other, and your rating shows on your listings.</p></div>`;
+    }
+    return `<div class="card pad stack"><div class="section-head"><h2 class="h2" style="font-size:20px">My rating</h2><span class="rating-big">★ ${r.avg.toFixed(1)} <small>${r.count} rating${r.count > 1 ? 's' : ''}</small></span></div>
+      ${r.recent.map((x) => `<div class="review"><span class="stars">${stars5(x.stars)}</span> <b>${esc(x.from)}</b>${x.text ? `<span class="meta">“${esc(x.text)}”</span>` : ''}</div>`).join('')}</div>`;
+  }
+
+  /* ---------- roommate split ---------- */
+  const mates = () => server.roommates.filter((r) => r.status === 'accepted');
+  function splitMate() {
+    const ms = mates();
+    return ms.find((r) => r.id === ui.splitWith) || ms[0] || null;
+  }
+  function splitToggle(action, on) {
+    const ms = mates();
+    if (!ms.length) {
+      return `<a class="switch-row" href="#/account" data-action="go-roommates" style="text-decoration:none;color:inherit"><span><span style="font-weight:600;display:block">Split with a roommate</span><span class="meta">Add your roommate in My Account first</span></span><span class="chev">${I.chev}</span></a>`;
+    }
+    const m = splitMate();
+    return `<label class="switch-row"><span><span style="font-weight:600;display:block">Split with ${esc(firstName(m.name))}</span><span class="meta">They get a request to pay half. If they say no, you pay the full price.</span></span><input type="checkbox" data-action="${action}" ${on ? 'checked' : ''}></label>
+      ${on && ms.length > 1 ? `<div class="chips" role="radiogroup" aria-label="Split with">${ms.map((r) => `<button type="button" role="radio" class="chip ${r.id === m.id ? 'on' : ''}" aria-checked="${r.id === m.id}" data-action="split-pick" data-id="${esc(r.id)}">${esc(firstName(r.name))}</button>`).join('')}</div>` : ''}`;
+  }
+
+  /* ---------- notifications: Activity list + push to this device ---------- */
+  function setNotes(r) {
+    server.notes = r.notifications;
+    server.unreadNotes = r.unread;
+  }
+  function refreshNotes() {
+    if (!AUTH.signedIn() || AUTH.needsSetup()) return Promise.resolve();
+    return AUTH.call('/notifications').then((r) => {
+      const changed = JSON.stringify(r) !== JSON.stringify({ notifications: server.notes, unread: server.unreadNotes });
+      setNotes(r);
+      if (!changed) return;
+      const { route } = parse();
+      if (route === 'inbox') rerender(); else renderTabbar(route);
+    }).catch(() => {});
+  }
+  let markingNotes = false;
+  function markNotesRead() {
+    if (markingNotes || !server.unreadNotes) return;
+    markingNotes = true;
+    server.unreadNotes = 0;
+    renderTabbar(parse().route);
+    AUTH.call('/notifications/read', { method: 'POST' }).catch(() => {}).finally(() => { markingNotes = false; });
+  }
+  const NOTE_ICON = { order: 'cart', split: 'people', roommate: 'people', return: 'home', review: 'star', message: 'chat' };
+  function activityList() {
+    if (!server.notes.length) return '<p class="empty">Requests, answers, roommate invites, return reminders and ratings show up here.</p>';
+    return `<div class="card" style="padding:0 14px">${server.notes.map((n) => {
+      const ic = NOTE_ICON[n.kind] === 'star' ? '<span aria-hidden="true">★</span>' : (I[NOTE_ICON[n.kind]] || I.chat);
+      return `<a class="list-row note-row ${n.read ? '' : 'unread'}" href="${esc(n.link || '#/inbox')}"><span class="note-ico">${ic}</span><span class="grow"><span class="note-text">${esc(n.text)}</span><span class="meta">${esc(ago(n.at))}</span></span></a>`;
+    }).join('')}</div>`;
+  }
+  const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const standalone = () => !!(navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches));
+  async function checkPush() {
+    if (!pushSupported()) { ui.push = onIPhone() && !standalone() ? 'ios-install' : 'unsupported'; return; }
+    if (Notification.permission === 'denied') { ui.push = 'denied'; return; }
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && await reg.pushManager.getSubscription();
+      ui.push = sub && Notification.permission === 'granted' ? 'on' : 'off';
+    } catch (e) { ui.push = 'off'; }
+  }
+  function b64uBytes(str) {
+    const s = atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4));
+    return Uint8Array.from(s, (c) => c.charCodeAt(0));
+  }
+  async function enablePush(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { ui.push = perm === 'denied' ? 'denied' : 'off'; rerender(); toast('Notifications are off'); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = (await reg.pushManager.getSubscription())
+        || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(window.TS_CONFIG.vapidPublicKey) });
+      await AUTH.call('/push/subscribe', { method: 'POST', body: JSON.stringify(sub.toJSON()) });
+      ui.push = 'on'; rerender(); toast('Notifications are on');
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      toast(err && err.message ? err.message : "Couldn't turn on notifications");
+    }
+  }
+  async function disablePush(quiet) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) {
+        await AUTH.call('/push/subscribe', { method: 'DELETE', body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {});
+        await sub.unsubscribe();
+      }
+    } catch (e) { /* nothing to turn off */ }
+    if (quiet) return;
+    ui.push = 'off'; rerender(); toast('Notifications are off on this device');
+  }
+  function pushCard(compact) {
+    const msg = {
+      on: 'Notifications are on for this device.',
+      off: 'Get a notification when someone requests your item, answers your request, messages you, or when a return is due.',
+      denied: 'Notifications are blocked for TroShare. Allow them in your browser settings (on iPhone: Settings → Notifications → TroShare).',
+      'ios-install': 'On iPhone, add TroShare to your Home Screen first: tap Share → Add to Home Screen, open TroShare from there, then turn on notifications.',
+      unsupported: "This browser can't show notifications. You'll still see everything under Inbox → Activity."
+    }[ui.push || 'off'] || '';
+    if (!msg) return '';
+    const btns = ui.push === 'on'
+      ? '<div class="row" style="gap:8px"><button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="push-test">Send a test</button><button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="push-off">Turn off</button></div>'
+      : (ui.push === 'off' ? '<button type="button" class="btn btn-cardinal btn-small" data-action="push-on">Turn on notifications</button>' : '');
+    return `<div class="card pad stack push-card">${compact ? '' : '<h2 class="h2" style="font-size:20px">Notifications</h2>'}<span class="meta">${esc(msg)}</span>${btns}</div>`;
+  }
+
+  /* ---------- how TroShare works (shown once after sign-up, and from My Account) ---------- */
+  const GUIDE = [
+    { icon: 'pin', title: 'Find it near your hall', text: 'Browse what other Trojans are renting out. Tap a hall on the map or search for an item. Every seller is a verified USC student.' },
+    { icon: 'viewfinder', title: 'See it in your room first', text: 'Add items to your cart, then open Room Preview → AR Preview to place them in your room at real size. Recommendations suggests what your room is missing.' },
+    { icon: 'chat', title: 'Request it, then meet up', text: 'Tap Rent now (or Buy now). The seller accepts, you pick a time in chat, and you pay at the handoff and tap “Got it”. Add a roommate in My Account to split the cost.' },
+    { icon: 'home', title: 'Give it back at move-out', text: 'We remind you a week before it’s due (around Dec 18 for fall, May 15 for spring). Hand it back, the seller confirms, and you rate each other.' }
+  ];
+  function guideScreen() {
+    const i = Math.max(0, Math.min(ui.guide || 0, GUIDE.length - 1));
+    const g = GUIDE[i], last = i === GUIDE.length - 1;
+    return `${topbar('How TroShare works')}
+    <section class="section guide">
+      <div class="guide-ico">${I[g.icon]}</div>
+      <span class="guide-step">Step ${i + 1} of ${GUIDE.length}</span>
+      <h2 class="serif">${esc(g.title)}</h2>
+      <p class="sub">${esc(g.text)}</p>
+      <div class="guide-dots" aria-hidden="true">${GUIDE.map((_, j) => `<span class="${j === i ? 'on' : ''}"></span>`).join('')}</div>
+      <div class="row" style="gap:8px">${i ? '<button type="button" class="btn btn-outline" style="flex:1" data-action="guide-prev">Back</button>' : ''}<button type="button" class="btn btn-cardinal" style="flex:2" data-action="${last ? 'guide-done' : 'guide-next'}">${last ? 'Start browsing' : 'Next'}</button></div>
+      ${last ? '' : '<button type="button" class="link" data-action="guide-done" style="align-self:center">Skip</button>'}
+    </section>`;
+  }
+
   function accountScreen() {
     const statusBadge = (s) => s === 'Returned' ? 'gray' : (s === 'Rented' ? 'red' : '');
     const renting = S.rentals.map((r) => {
@@ -760,7 +1073,7 @@
       return `<a class="list-row" href="${r.thread ? '#/chat/' + r.thread : '#/item/' + l.id}"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">From ${esc(l.seller)} · ${r.kind === 'buy' ? 'Bought' : (r.plan === 'sem' ? '1 Semester' : 'Full year')} · ${money(r.price)}${r.split ? ' (split)' : ''}</span><span class="meta">${esc(r.when)}</span></span><span class="badge ${statusBadge(r.status)}">${esc(r.status)}</span></a>`;
     }).join('');
     const mine = myListings();
-    const mineRows = mine.map((m) => `<div class="list-row"><a class="row grow" href="#/item/${esc(m.id)}" style="flex-direction:row;align-items:center;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">${money(m.sem)} per semester · <span class="badge ${m.status === 'paused' ? 'gray' : ''}" style="font-size:11px">${m.status === 'paused' ? 'Hidden' : 'Available'}</span></span><span class="meta">${esc(m.condition)} · ${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span></a><button type="button" class="btn btn-outline btn-small" data-action="edit-listing" data-id="${esc(m.id)}" aria-label="Edit ${esc(nameOf(m))}">Edit</button></div>`).join('');
+    const mineRows = mine.map((m) => `<div class="list-row"><a class="row grow" href="#/item/${esc(m.id)}" style="flex-direction:row;align-items:center;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(m))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(m))}</span><span class="meta">${money(m.sem)} per semester · <span class="badge ${m.status === 'available' ? '' : (m.status === 'rented' ? 'red' : 'gray')}" style="font-size:11px">${({ paused: 'Hidden', rented: 'Rented out', sold: 'Sold' })[m.status] || 'Available'}</span></span><span class="meta">${esc(m.condition)} · ${m.handoff === 'both' ? 'Delivery or pickup' : (m.handoff === 'drop' ? 'Delivery only' : 'Pickup only')}</span></span></a><button type="button" class="btn btn-outline btn-small" data-action="edit-listing" data-id="${esc(m.id)}" aria-label="Edit ${esc(nameOf(m))}">Edit</button></div>`).join('');
     const viewed = S.viewed.map(findListing).filter(Boolean);
     const favs = server.favorites.map(findListing).filter(Boolean);
     const avatar = D.me.picture
@@ -779,20 +1092,19 @@
           <span class="meta">${esc(D.me.year || 'Add your class year')} · ${esc(AUTH.profile && AUTH.profile.hall ? hallById(D.me.hall).name : 'Add where you live')}</span></span>
         <span class="chev">${I.chev}</span></a>
       ${roommatesCard()}
-      <div class="card pad stack">
-        <div class="section-head"><h2 class="h2" style="font-size:20px">My rating</h2></div>
-        <p class="meta" style="margin:0;font-size:13px">No reviews yet. After each rental, the other student rates how it went, and your rating shows up here for sellers to see.</p>
-      </div>
+      ${ratingCard()}
       <div class="card pad" style="display:flex;flex-direction:column;gap:10px">
         <h2 class="h2" style="font-size:20px">My rentals</h2>
-        <div class="tabs2" role="tablist"><button type="button" role="tab" class="${ui.accTab === 'rent' ? 'on' : ''}" aria-selected="${ui.accTab === 'rent'}" data-action="acc-tab" data-id="rent">Orders (${S.rentals.length})</button><button type="button" role="tab" class="${ui.accTab === 'list' ? 'on' : ''}" aria-selected="${ui.accTab === 'list'}" data-action="acc-tab" data-id="list">My listings (${mine.length})</button></div>
-        <div>${ui.accTab === 'rent' ? (renting || '<p class="empty">No rentals or purchases yet.</p>') : (mineRows || `<p class="empty">${server.loaded ? 'You haven’t listed anything yet.' : 'Loading…'}</p>`)}</div>
+        <div class="tabs2" role="tablist"><button type="button" role="tab" class="${ui.accTab === 'rent' ? 'on' : ''}" aria-selected="${ui.accTab === 'rent'}" data-action="acc-tab" data-id="rent">Orders (${server.orders.length + S.rentals.length})</button><button type="button" role="tab" class="${ui.accTab === 'list' ? 'on' : ''}" aria-selected="${ui.accTab === 'list'}" data-action="acc-tab" data-id="list">My listings (${mine.length})</button></div>
+        <div>${ui.accTab === 'rent' ? ((ordersList() + renting) || `<p class="empty">${server.ordersLoaded ? 'No orders yet. Rent or buy something, or wait for requests on your listings.' : 'Loading…'}</p>`) : (mineRows || `<p class="empty">${server.loaded ? 'You haven’t listed anything yet.' : 'Loading…'}</p>`)}</div>
         ${ui.accTab === 'list' ? '<a class="btn-dashed" href="#/sell">+ List an item</a>' : ''}
       </div>
       ${viewed.length ? `<div class="card pad" style="display:flex;flex-direction:column;gap:10px"><h2 class="h2" style="font-size:20px">Recently viewed</h2><div class="hscroll">${viewed.map((l) => `<a class="mini" href="#/item/${l.id}"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span style="font-size:12px;font-weight:700">${esc(nameOf(l))}</span><span style="font-size:12px;font-weight:700;color:var(--cardinal)">${money(l.sem)}/sem</span></a>`).join('')}</div></div>` : ''}
       <div class="card pad" style="display:flex;flex-direction:column;gap:4px"><h2 class="h2" style="font-size:20px">Favorites</h2>
         ${favs.length ? favs.map((l) => `<div class="list-row"><a class="row grow" href="#/item/${l.id}" style="flex-direction:row;text-decoration:none;color:inherit;gap:12px"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta"><b style="color:var(--cardinal)">${money(l.sem)}/sem</b> · ${esc(l.seller)} · ${esc(hallById(l.hall).name)}</span></span></a><button type="button" class="icon-btn" style="color:var(--cardinal)" data-action="fav" data-id="${l.id}" aria-label="Remove ${esc(nameOf(l))} from favorites">${I.heart(true)}</button></div>`).join('') : '<p class="empty">Tap the heart on a listing to save it.</p>'}
       </div>
+      ${pushCard(false)}
+      <a class="card pad profile-link" href="#/guide" data-action="guide-open"><span class="grow"><span class="h2" style="font-size:20px;display:block">How TroShare works</span><span class="meta">Renting, handoff, returns and ratings in 4 steps</span></span><span class="chev">${I.chev}</span></a>
       <button type="button" class="btn btn-cardinal" data-action="logout">Log out</button>
       <div class="card pad stack">
         <span class="label">Demo tools</span>
@@ -1335,6 +1647,8 @@
       case 'chat': html = chatScreen(id); break;
       case 'account': html = accountScreen(); break;
       case 'profile': html = profileScreen(); break;
+      case 'order': html = orderScreen(id); break;
+      case 'guide': html = guideScreen(); break;
       case 'room': html = roomScreen(); break;
       case 'fit': html = fitScreen(id); break;
       case 'ar': html = arScreen(id); break;
@@ -1344,6 +1658,7 @@
     renderTabbar(route);
     if (route === 'fit') setupFit();
     if (route === 'ar' || route === 'room') setupGenAr();
+    if (route === 'inbox' && ui.inboxTab === 'activity') markNotesRead();
     if (location.hash !== lastHash) {
       lastHash = location.hash;
       if (route === 'chat') scrollThreadEnd();
@@ -1384,42 +1699,30 @@
     btn.disabled = true;
     const made = [];
     try {
+      const mate = ui.splitCart ? splitMate() : null;
       for (const { c, l } of checkoutRows()) {
         const buy = modeOf(c) === 'buy';
-        const rid = 'r' + Date.now() + made.length;
-        const price = entryPrice(c, l);
         const where = c.handoff === 'drop' ? myLobby() : D.pickupSpots[l.hall];
-        let thread;
-        if (l.sample) {
-          const t = ensureThread(l.seller, l.year, { rentalId: rid, role: 'renting', listingId: c.listingId });
-          t.msgs.push({ from: 'sys', text: 'You rented this · ' + (ui.splitCart ? 'split with roommate' : 'paid in full') });
-          t.msgs.push({ from: 'them', text: `Hi ${D.me.first || 'there'}, thanks for renting my ${nameOf(l).toLowerCase()}! ${c.handoff === 'drop' ? 'I can drop it off at your lobby — what time works?' : 'You can pick it up at ' + where + '. When works for you?'}` });
-          t.unread = (t.unread || 0) + 1;
-          thread = t.id;
-        } else {
-          const conv = await openRealChat(l);
-          const sellerFirst = l.seller.split(' ')[0];
-          const how = c.handoff === 'drop' ? 'Could you drop it off at ' + where + '?' : "I'll pick it up at " + where + '.';
-          await sendReal(conv.id, buy
-            ? { event: 'buy', handoff: c.handoff, text: `Hi ${sellerFirst}! I'd like to buy your “${nameOf(l)}” for ${money(price)}. ${how} What time works for you?` }
-            : { event: 'rent', plan: c.plan, handoff: c.handoff, text: `Hi ${sellerFirst}! I'd like to rent your “${nameOf(l)}” for ${c.plan === 'sem' ? 'the semester' : 'the full year'}. ${how} What time works for you?` });
-          thread = conv.id;
-        }
-        S.rentals.unshift({ id: rid, kind: buy ? 'buy' : 'rent', listingId: l.id, plan: c.plan, price, handoff: c.handoff, split: ui.splitCart, status: 'Scheduled', when: (buy ? 'Handoff' : 'Move-in day') + ' · time TBD', where, thread });
+        const how = c.handoff === 'drop' ? 'Could you drop it off at ' + where + '?' : "I'll pick it up at " + where + '.';
+        const note = `Hi ${l.seller.split(' ')[0]}! I'd like to ${buy ? 'buy' : 'rent'} your “${nameOf(l)}”${buy ? '' : ' for ' + (c.plan === 'sem' ? 'the semester' : 'the full year')}. ${how} What time works for you?`;
+        const r = await AUTH.call('/orders', { method: 'POST', body: JSON.stringify({
+          listingId: l.id, kind: buy ? 'buy' : 'rent', plan: buy ? undefined : c.plan, handoff: c.handoff, note,
+          splitWith: mate && !buy ? mate.id : undefined
+        }) });
+        putOrder(r.order);
         S.cart = S.cart.filter((x) => x.listingId !== l.id);
-        made.push({ thread, buy });
         save();
+        made.push(r.order);
       }
     } catch (err) {
       btn.disabled = false;
       toast(err.message);
       if (!made.length) return;
     }
-    ui.now = null;
-    const bought = made.filter((m) => m.buy).length;
-    const did = bought === made.length ? 'Bought' : (bought ? 'Ordered' : 'Rented');
-    toast(made.length > 1 ? `${did} ${made.length} items — sellers notified` : `${did}! The seller has been notified`);
-    location.hash = made.length === 1 ? '#/chat/' + made[0].thread : '#/inbox';
+    ui.now = null; ui.splitCart = false; ui.accTab = 'rent';
+    refreshConvs();
+    toast(made.length > 1 ? `Sent ${made.length} requests. Sellers will accept or decline.` : `Request sent. ${made[0].seller.name.split(' ')[0]} will accept or decline.`);
+    location.hash = made.length === 1 ? '#/order/' + made[0].id : '#/account';
   }
 
   function updateMine(id, patch, done) {
@@ -1496,6 +1799,54 @@
         break;
       }
       case 'acc-tab': ui.accTab = id; rerender(); break;
+      case 'inbox-tab': ui.inboxTab = id; rerender(); break;
+      case 'order-act': {
+        const act = el.dataset.act;
+        if (act === 'decline' && !window.confirm('Decline this request?')) break;
+        if (act === 'cancel' && !window.confirm('Cancel this request?')) break;
+        el.disabled = true;
+        AUTH.call(`/orders/${encodeURIComponent(id)}/${act}`, { method: 'POST' })
+          .then((r) => {
+            putOrder(r.order); rerender(); toast(ORDER_TOAST[act] || 'Done');
+            // The listing goes off or back on the market; your chat got a new line.
+            AUTH.call('/listings').then((x) => { server.listings = x.listings.map(fromServer); }).catch(() => {});
+            refreshConvs();
+          })
+          .catch((err) => { el.disabled = false; toast(err.message); refreshOrders().then(rerender); });
+        break;
+      }
+      case 'rate-star': {
+        const oid = el.dataset.order;
+        ui.rate = { text: ui.rate && ui.rate.id === oid ? ui.rate.text : '', id: oid, stars: Number(id) };
+        rerender(); break;
+      }
+      case 'rate-send': {
+        const r = ui.rate;
+        if (!r || r.id !== id || !r.stars) break;
+        el.disabled = true;
+        AUTH.call(`/orders/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify({ stars: r.stars, text: r.text || '' }) })
+          .then((x) => {
+            putOrder(x.order); ui.rate = null; rerender(); toast('Thanks for rating');
+            // Ratings show on listings: pick up the new average.
+            AUTH.call('/listings').then((y) => { server.listings = y.listings.map(fromServer); }).catch(() => {});
+          })
+          .catch((err) => { el.disabled = false; toast(err.message); });
+        break;
+      }
+      case 'split-pick': ui.splitWith = id; rerender(); break;
+      case 'go-roommates': e.preventDefault(); location.hash = '#/account'; setTimeout(() => { const c = document.getElementById('roommates'); if (c) c.scrollIntoView({ behavior: 'smooth' }); }, 300); break;
+      case 'push-on': enablePush(el); break;
+      case 'push-off': disablePush(false); break;
+      case 'push-test':
+        el.disabled = true;
+        AUTH.call('/push/test', { method: 'POST' }).then(() => toast('Sent. It should show up in a few seconds')).catch((err) => toast(err.message)).finally(() => { el.disabled = false; });
+        break;
+      case 'guide-open': ui.guide = 0; break;
+      case 'guide-next': ui.guide = (ui.guide || 0) + 1; rerender(); break;
+      case 'guide-prev': ui.guide = Math.max(0, (ui.guide || 0) - 1); rerender(); break;
+      case 'guide-done':
+        try { localStorage.setItem('ts-guide-seen', '1'); } catch (x) { /* private mode */ }
+        ui.guide = 0; location.hash = '#/home'; break;
       case 'rm-accept':
         el.disabled = true;
         AUTH.call('/roommates/' + encodeURIComponent(id) + '/accept', { method: 'POST' })
@@ -1541,7 +1892,8 @@
         if (window.confirm('Clear your rentals, cart and sample-seller chats on this device?')) { S = D.emptyState(); save(); location.hash = '#/home'; render(); toast('Activity cleared'); }
         break;
       case 'logout':
-        if (window.TS_INTRO) window.TS_INTRO.logout();
+        // This device stops getting the old account's notifications.
+        disablePush(true).finally(() => { ui.push = null; if (window.TS_INTRO) window.TS_INTRO.logout(); });
         break;
       case 'analyze': analyzeRoom(); break;
       case 'rm-room': {
@@ -1588,9 +1940,10 @@
   app.addEventListener('change', (e) => {
     const el = e.target;
     const k = el.dataset.input;
-    if (!k) return;
+    // The split switches have no data-input, so check them first.
     if (el.dataset.action === 'split') { ui.split = el.checked; rerender(); return; }
     if (el.dataset.action === 'split-cart') { ui.splitCart = el.checked; rerender(); return; }
+    if (!k) return;
     if (k === 'sort') { ui.sort = el.value; rerender(); return; }
     if (k === 'room-photo') { addRoomFiles(el.files); return; }
     const d = formDraft();
@@ -1616,6 +1969,7 @@
     if (k === 'fit-size') { fit.size = Number(el.value) / 100; applyFit(); return; }
     const fd = formDraft();
     if (k === 'rm-email') { ui.rmEmail = el.value; return; }
+    if (k === 'rate-text') { const oid = el.dataset.order; ui.rate = { stars: ui.rate && ui.rate.id === oid ? ui.rate.stars : 0, id: oid, text: el.value }; return; }
     if (k === 'hall-q') { // filters the hall list in place, without redrawing the form
       const q = el.value.trim().toLowerCase();
       let shown = 0;
@@ -1640,7 +1994,7 @@
       btn.disabled = true;
       const firstTime = AUTH.needsSetup();
       AUTH.saveProfile({ year, hall })
-        .then(() => { applyUser(); if (firstTime) location.hash = '#/home'; else if (parse().route === 'profile') location.hash = '#/account'; render(); toast(firstTime ? 'You are all set' : 'Profile saved'); })
+        .then(() => { applyUser(); if (firstTime) { ui.guide = 0; location.hash = '#/guide'; } else if (parse().route === 'profile') location.hash = '#/account'; render(); toast(firstTime ? 'You are all set' : 'Profile saved'); })
         .catch((err) => { btn.disabled = false; toast(err.message); });
       return;
     }
@@ -1775,11 +2129,12 @@
     const r = parse().route;
     if ((r === 'home' || r === 'account') && Date.now() - server.at > 60000) syncFromServer();
     else if (r === 'account') refreshRoommates();
-    if (r === 'inbox') refreshConvs();
+    if (r === 'inbox') { refreshConvs(); refreshNotes(); }
+    if (r === 'order' || r === 'account') refreshOrders();
   });
   // Signing in or out switches whose data is shown.
   const switchUser = () => {
-    Object.assign(server, { listings: [], favorites: [], convs: [], msgs: {}, roommates: [], loaded: false, error: null, at: 0 });
+    Object.assign(server, { listings: [], favorites: [], convs: [], msgs: {}, roommates: [], orders: [], ordersLoaded: false, notes: [], unreadNotes: 0, rating: null, loaded: false, error: null, at: 0 });
     applyUser(); S = load(); ui.draft = null; room.analysis = null; render();
     if (AUTH.signedIn()) syncFromServer();
   };
@@ -1801,6 +2156,14 @@
     };
     tick();
     setInterval(tick, 15000);
+  }
+
+  checkPush().then(() => { const r = parse().route; if (r === 'account' || r === 'inbox') rerender(); });
+  // Tapping a notification while TroShare is open: the service worker asks us to go to its screen.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'open' && typeof e.data.url === 'string' && e.data.url.startsWith('#/')) location.hash = e.data.url;
+    });
   }
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {

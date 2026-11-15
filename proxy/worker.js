@@ -7,9 +7,14 @@
 //   Claude request itself (model, prompt, schema), so the key can only be used for this one feature.
 // - AI AR models: Claude describes a listing's item as simple 3D shapes from its photos (ar.js);
 //   the browser builds the model from that description (../armodel.js).
+// - Orders, ratings, notifications and return reminders (orders.js), with Web Push to phones (push.js).
 
 import { DurableObject } from 'cloudflare:workers';
 import { arRequest, cleanArSpec } from './ar.js';
+import {
+  createOrder, listOrders, orderAction, reviewOrder, ratingOf, hasOpenOrder, notify,
+  listNotifications, markNotificationsRead, savePushSubscription, deletePushSubscription, testPush, remindReturns,
+} from './orders.js';
 
 const ALLOWED_ORIGINS = new Set([
   'https://duhaihang233.github.io',
@@ -144,7 +149,7 @@ export default {
       const photoBase = `${url.origin}/photos/`;
       if (method === 'GET' && path === '/me') {
         const user = await ensureUser(env, session);
-        return reply(200, { user: publicUser(session), profile: profileOf(user), favorites: await listFavorites(env, session.sub) });
+        return reply(200, { user: publicUser(session), profile: profileOf(user), favorites: await listFavorites(env, session.sub), rating: await ratingOf(env, session.sub) });
       }
       if (method === 'PUT' && path === '/me/profile') return reply(200, { profile: await saveProfile(request, env, session) });
       if (method === 'GET' && path === '/listings') return reply(200, { listings: await listListings(env, session.sub, photoBase) });
@@ -158,15 +163,29 @@ export default {
       const fm = path.match(/^\/favorites\/([A-Za-z0-9_-]{1,40})$/);
       if (fm && (method === 'PUT' || method === 'DELETE')) return reply(200, { favorites: await setFavorite(env, session.sub, fm[1], method === 'PUT') });
       if (method === 'GET' && path === '/roommates') return reply(200, { roommates: await listRoommates(env, session) });
-      if (method === 'POST' && path === '/roommates') { await inviteRoommate(request, env, session); return reply(201, { roommates: await listRoommates(env, session) }); }
+      if (method === 'POST' && path === '/roommates') { await inviteRoommate(request, env, ctx, session); return reply(201, { roommates: await listRoommates(env, session) }); }
       const rm = path.match(/^\/roommates\/(r[0-9a-f]{16})(\/accept)?$/);
-      if (rm && method === 'POST' && rm[2]) { await acceptRoommate(env, session, rm[1]); return reply(200, { roommates: await listRoommates(env, session) }); }
+      if (rm && method === 'POST' && rm[2]) { await acceptRoommate(env, ctx, session, rm[1]); return reply(200, { roommates: await listRoommates(env, session) }); }
+      // Orders (orders.js)
+      if (method === 'GET' && path === '/orders') return reply(200, { orders: await listOrders(env, session, photoBase) });
+      if (method === 'POST' && path === '/orders') return reply(201, { order: await createOrder(request, env, ctx, session, photoBase) });
+      const om = path.match(/^\/orders\/(o[0-9a-f]{16})\/(accept|decline|cancel|handoff|return|returned|split-accept|split-decline|review)$/);
+      if (om && method === 'POST') {
+        if (om[2] === 'review') return reply(200, { order: await reviewOrder(request, env, ctx, session, om[1], photoBase) });
+        return reply(200, { order: await orderAction(env, ctx, session, om[1], om[2], photoBase) });
+      }
+      // Notifications and push
+      if (method === 'GET' && path === '/notifications') return reply(200, await listNotifications(env, ctx, session));
+      if (method === 'POST' && path === '/notifications/read') { await markNotificationsRead(env, session); return reply(200, { ok: true }); }
+      if (method === 'POST' && path === '/push/subscribe') { await savePushSubscription(request, env, session); return reply(200, { ok: true }); }
+      if (method === 'DELETE' && path === '/push/subscribe') { await deletePushSubscription(request, env, session); return reply(200, { ok: true }); }
+      if (method === 'POST' && path === '/push/test') { await testPush(env, session); return reply(200, { ok: true }); }
       if (rm && method === 'DELETE' && !rm[2]) { await removeRoommate(env, session, rm[1]); return reply(200, { roommates: await listRoommates(env, session) }); }
       if (method === 'GET' && path === '/conversations') return reply(200, { conversations: await listConversations(env, session.sub, photoBase) });
       if (method === 'POST' && path === '/conversations') return reply(200, { conversation: await startConversation(request, env, session, photoBase) });
       const cm = path.match(/^\/conversations\/(c[0-9a-f]{16})\/messages$/);
       if (cm && method === 'GET') return reply(200, await readMessages(env, session, cm[1], Number(url.searchParams.get('after')) || 0, photoBase));
-      if (cm && method === 'POST') return reply(201, { messages: await sendMessage(request, env, session, cm[1]) });
+      if (cm && method === 'POST') return reply(201, { messages: await sendMessage(request, env, ctx, session, cm[1]) });
       if (method !== 'POST' || path !== '/analyze-room') return fail(404, 'Not found.');
     } catch (err) {
       if (err instanceof HttpError) return fail(err.status, err.message);
@@ -234,6 +253,11 @@ export default {
     let analysis;
     try { analysis = JSON.parse(block.text); } catch { return fail(502, "Couldn't read Claude's answer. Try again."); }
     return reply(200, analysis);
+  },
+
+  // Daily cron (wrangler.toml [triggers]): return reminders for rentals that are due soon or overdue.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(remindReturns(env, ctx));
   },
 };
 
@@ -397,7 +421,7 @@ async function listRoommates(env, session) {
   });
 }
 
-async function inviteRoommate(request, env, session) {
+async function inviteRoommate(request, env, ctx, session) {
   const input = await readJson(request, 2_000);
   const email = normEmail(input.email);
   if (!/^[^@\s]+@[^@\s]+\.edu$/.test(email)) throw new HttpError(400, "Enter your roommate's .edu email.");
@@ -408,18 +432,22 @@ async function inviteRoommate(request, env, session) {
   if (mine.some((r) => normEmail(r.email) === email)) throw new HttpError(400, "You've already invited them.");
   // They invited you first: accepting theirs is the same thing.
   const theirs = (await listRoommates(env, session)).find((r) => r.direction === 'received' && r.status === 'pending' && normEmail(r.email) === email);
-  if (theirs) return acceptRoommate(env, session, theirs.id);
+  if (theirs) return acceptRoommate(env, ctx, session, theirs.id);
   if (mine.length >= MAX_ROOMMATES) throw new HttpError(400, `You can have up to ${MAX_ROOMMATES} roommates.`);
   const id = 'r' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   await env.DB.prepare("INSERT INTO roommates (id, inviter, email, status, created_at) VALUES (?, ?, ?, 'pending', ?)")
     .bind(id, session.sub, email, Date.now()).run();
+  // If they've used TroShare before, tell them now; otherwise they'll see it when they sign in.
+  const them = await env.DB.prepare('SELECT sub FROM users WHERE lower(email) = ?').bind(email).first();
+  if (them) await notify(env, ctx, them.sub, 'roommate', `${sellerName(session)} invited you to be roommates on TroShare.`, '#/account');
 }
 
-async function acceptRoommate(env, session, id) {
+async function acceptRoommate(env, ctx, session, id) {
   const row = await env.DB.prepare('SELECT * FROM roommates WHERE id = ?').bind(id).first();
   if (!row || row.status !== 'pending' || row.email !== normEmail(session.email)) throw new HttpError(404, 'That invite is no longer open.');
   await ensureUser(env, session);
   await env.DB.prepare("UPDATE roommates SET status = 'accepted', invitee = ?, accepted_at = ? WHERE id = ?").bind(session.sub, Date.now(), id).run();
+  await notify(env, ctx, row.inviter, 'roommate', `${sellerName(session)} accepted your roommate invite. You can split rentals now.`, '#/account');
 }
 
 async function removeRoommate(env, session, id) {
@@ -451,13 +479,15 @@ function listingOut(row, me, photoBase) {
     handoff: row.handoff, openToSell: !!row.open_to_sell, buyPrice: row.open_to_sell && row.buy_price ? row.buy_price : null,
     status: row.status, createdAt: row.created_at,
     photos: JSON.parse(row.photos || '[]').map((k) => photoBase + k),
-    seller: { name: sellerName(row), year: row.u_year || '', hall: row.u_hall || 'webb', picture: row.u_picture || '' },
+    seller: { name: sellerName(row), year: row.u_year || '', hall: row.u_hall || 'webb', picture: row.u_picture || '', rating: row.s_rating || null, reviews: row.s_reviews || 0 },
     mine: row.owner === me,
     ar: arOut(row),
   };
 }
 const LISTING_SELECT = `SELECT l.*, u.given, u.family, u.name, u.year AS u_year, u.hall AS u_hall, u.picture AS u_picture,
-    a.status AS ar_status, a.error AS ar_error, a.started_at AS ar_started_at
+    a.status AS ar_status, a.error AS ar_error, a.started_at AS ar_started_at,
+    (SELECT ROUND(AVG(stars), 1) FROM reviews WHERE subject = l.owner) AS s_rating,
+    (SELECT COUNT(*) FROM reviews WHERE subject = l.owner) AS s_reviews
   FROM listings l JOIN users u ON u.sub = l.owner LEFT JOIN ar_models a ON a.listing_id = l.id`;
 
 async function listListings(env, me, photoBase) {
@@ -583,6 +613,7 @@ async function updateListing(request, env, ctx, session, id, photoBase) {
   const fields = cleanListingFields(input, true);
   if (input.status !== undefined) {
     if (!['available', 'paused'].includes(input.status)) throw new HttpError(400, 'Unknown listing status.');
+    if (row.status === 'rented' || row.status === 'sold') throw new HttpError(400, row.status === 'sold' ? 'This item is sold.' : "This item is promised to a renter right now. It's listed again when it comes back.");
     fields.status = input.status;
   }
   const current = JSON.parse(row.photos || '[]');
@@ -626,6 +657,7 @@ async function updateListing(request, env, ctx, session, id, photoBase) {
 
 async function deleteListing(env, session, id) {
   const row = await ownListing(env, session, id);
+  if (await hasOpenOrder(env, id)) throw new HttpError(400, 'This item has an open order. Decline it, or wait until it comes back, then delete it.');
   await env.DB.batch([
     env.DB.prepare('DELETE FROM listings WHERE id = ?').bind(id),
     env.DB.prepare('DELETE FROM favorites WHERE listing_id = ?').bind(id),
@@ -728,7 +760,7 @@ async function readMessages(env, session, id, after, photoBase) {
  * Sends a message. Instead of (or with) text, the buyer can send an event the server words itself:
  * `rent` (with plan 'sem'|'yr' and handoff 'drop'|'pick'), `buy` (with handoff) or `confirm` (handoff done).
  */
-async function sendMessage(request, env, session, id) {
+async function sendMessage(request, env, ctx, session, id) {
   const input = await readJson(request, 10_000);
   const row = await myConversation(env, session.sub, id);
   const buyer = row.buyer === session.sub;
@@ -768,6 +800,11 @@ async function sendMessage(request, env, session, id) {
   // Your own messages count as read.
   await env.DB.prepare(`UPDATE conversations SET last_at = ?, ${buyer ? 'buyer_read' : 'seller_read'} = ? WHERE id = ?`)
     .bind(now, sent[sent.length - 1].id, id).run();
+  const textLine = out.find(([kind]) => kind === 'text');
+  if (textLine) {
+    const preview = textLine[1].length > 120 ? textLine[1].slice(0, 117) + '…' : textLine[1];
+    await notify(env, ctx, buyer ? row.seller : row.buyer, 'message', `${sellerName(session)}: ${preview}`, '#/chat/' + id, { store: false });
+  }
   return sent;
 }
 
@@ -878,3 +915,6 @@ async function getArModel(env, id) {
   const ar = arOut({ ar_status: row.status, ar_error: row.error, ar_started_at: row.started_at });
   return { ...ar, spec: ar.status === 'success' ? JSON.parse(row.spec) : null };
 }
+
+// Shared with orders.js.
+export { HttpError, readJson, ensureUser, sellerName };

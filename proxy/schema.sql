@@ -100,3 +100,66 @@ CREATE TABLE IF NOT EXISTS roommates (
 CREATE INDEX IF NOT EXISTS roommates_inviter ON roommates(inviter);
 CREATE INDEX IF NOT EXISTS roommates_email ON roommates(email, status);
 CREATE INDEX IF NOT EXISTS roommates_invitee ON roommates(invitee);
+
+-- Orders: a student renting or buying another student's listing (status flow in orders.js).
+-- Listing details are copied in, so an order still reads right if the listing changes or is deleted.
+CREATE TABLE IF NOT EXISTS orders (
+  id            TEXT PRIMARY KEY,
+  listing_id    TEXT NOT NULL,
+  renter        TEXT NOT NULL REFERENCES users(sub),  -- the renter or buyer
+  seller        TEXT NOT NULL REFERENCES users(sub),
+  kind          TEXT NOT NULL,             -- 'rent' | 'buy'
+  plan          TEXT,                      -- 'sem' | 'yr' for rentals
+  handoff       TEXT NOT NULL,             -- 'drop' | 'pick'
+  price         INTEGER NOT NULL,          -- $ total
+  listing_title TEXT NOT NULL,
+  listing_type  TEXT NOT NULL,
+  listing_photo TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL,             -- requested | accepted | declined | canceled | active | return_requested | completed
+  split_with    TEXT REFERENCES users(sub), -- roommate asked to pay half
+  split_status  TEXT,                      -- pending | accepted | declined
+  conv_id       TEXT,                      -- the renter-seller chat
+  return_by     TEXT,                      -- YYYY-MM-DD for rentals
+  reminded      INTEGER NOT NULL DEFAULT 0, -- 1 after the 7-day reminder, 2 after the due-date one
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  completed_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS orders_renter ON orders(renter, status);
+CREATE INDEX IF NOT EXISTS orders_seller ON orders(seller, status);
+CREATE INDEX IF NOT EXISTS orders_split ON orders(split_with);
+CREATE INDEX IF NOT EXISTS orders_listing ON orders(listing_id, status);
+
+-- Ratings after a finished order: renter and seller rate each other once.
+CREATE TABLE IF NOT EXISTS reviews (
+  order_id   TEXT NOT NULL,
+  author     TEXT NOT NULL REFERENCES users(sub),
+  subject    TEXT NOT NULL REFERENCES users(sub),
+  stars      INTEGER NOT NULL,             -- 1 to 5
+  text       TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (order_id, author)
+);
+CREATE INDEX IF NOT EXISTS reviews_subject ON reviews(subject, created_at);
+
+-- In-app notifications (the Activity list in Inbox).
+CREATE TABLE IF NOT EXISTS notifications (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user       TEXT NOT NULL REFERENCES users(sub),
+  kind       TEXT NOT NULL,                -- order | split | return | review | roommate
+  text       TEXT NOT NULL,
+  link       TEXT NOT NULL DEFAULT '',     -- app route, e.g. #/order/o…
+  read       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user, id);
+
+-- Web Push subscriptions (one per device that turned notifications on).
+CREATE TABLE IF NOT EXISTS push_subs (
+  endpoint   TEXT PRIMARY KEY,
+  user       TEXT NOT NULL REFERENCES users(sub),
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS push_subs_user ON push_subs(user);

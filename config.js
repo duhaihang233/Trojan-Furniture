@@ -4,5 +4,7 @@ window.TS_CONFIG = {
   api: 'https://troshare-room-proxy.thomas-haihang-du.workers.dev',
   // OAuth client ID from Google Cloud Console (APIs & Services → Credentials). Must match
   // GOOGLE_CLIENT_ID in proxy/wrangler.toml.
-  googleClientId: '53504650186-br07fmrs9d8apcmd502ttnd4lkjv6cua.apps.googleusercontent.com'
+  googleClientId: '53504650186-br07fmrs9d8apcmd502ttnd4lkjv6cua.apps.googleusercontent.com',
+  // Public half of the Web Push (VAPID) key. Must match VAPID_PUBLIC_KEY in proxy/wrangler.toml.
+  vapidPublicKey: 'BKPuBG6sP-Q0nBVDgUqUxR5qZ1-9lUz3JnBgFtbSDkcR1V6H5EE0CMVzS6sZizDzzFu6VmW92jdapBm568f9FQw'
 };

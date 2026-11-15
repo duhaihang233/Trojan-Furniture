@@ -654,3 +654,49 @@ fieldset.pick legend { padding: 0; margin-bottom: 8px; }
 /* A pin that would cover a more important one shows only its count. */
 .pin.dot { padding: 0 4px; gap: 0; min-height: 30px; }
 .pin.home, .pin.on { z-index: 2; }
+
+/* Orders */
+.order-row { flex-direction: row; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+.order-row .grow, .chat-order .grow { display: flex; flex-direction: column; min-width: 0; }
+.todo { font-size: 12px; font-weight: 700; color: var(--cardinal); }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; }
+.steps li { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; position: relative; }
+.steps li::before { content: ''; position: absolute; top: 12px; right: 50%; width: 100%; height: 3px; background: #DDD; z-index: 0; }
+.steps li:first-child::before { display: none; }
+.steps li.done::before { background: var(--cardinal); }
+.steps .dotc { position: relative; z-index: 1; width: 26px; height: 26px; border-radius: 50%; border: 3px solid #DDD; background: #fff; display: flex; align-items: center; justify-content: center; }
+.steps li.done .dotc { background: var(--cardinal); border-color: var(--cardinal); color: #fff; }
+.steps li.done { color: var(--ink); }
+.steps li.now { color: var(--cardinal); }
+.steps .dotc svg { width: 14px; height: 14px; }
+.order-acts { display: flex; flex-direction: column; gap: 8px; }
+.stars { color: #C8A100; letter-spacing: 1px; }
+.rate-form { display: flex; flex-direction: column; gap: 10px; }
+.star-row { display: flex; gap: 4px; }
+.star { width: 44px; height: 44px; border: none; background: transparent; font-size: 32px; line-height: 1; color: #D0D0D0; cursor: pointer; padding: 0; }
+.star.on { color: #E0A800; }
+.star:active { transform: scale(.9); }
+.rating-big { font-size: 22px; font-weight: 800; color: var(--cardinal); }
+.rating-big small { font-size: 12px; color: var(--muted); font-weight: 600; }
+.review { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: 14px; }
+.review .meta { flex-basis: 100%; }
+/* Activity (notifications) */
+.note-row { flex-direction: row; align-items: flex-start; gap: 12px; text-decoration: none; color: inherit; }
+.note-row .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.note-text { font-size: 14px; line-height: 1.35; }
+.note-row.unread .note-text { font-weight: 700; }
+.note-row.unread { box-shadow: inset 3px 0 0 var(--cardinal); padding-left: 8px; }
+.note-ico { width: 34px; height: 34px; flex: none; border-radius: 50%; background: var(--gold-25); color: var(--cardinal); display: flex; align-items: center; justify-content: center; font-size: 17px; }
+.note-ico svg { width: 18px; height: 18px; }
+.push-card .btn { align-self: stretch; }
+/* How TroShare works */
+.guide { align-items: center; text-align: center; padding-top: 40px; gap: 14px; }
+.guide-ico { width: 96px; height: 96px; border-radius: 50%; background: var(--gold-25); color: var(--cardinal); display: flex; align-items: center; justify-content: center; border: 3px solid var(--gold); }
+.guide-ico svg { width: 46px; height: 46px; }
+.guide-step { font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--cardinal); }
+.guide h2 { margin: 0; font-size: 28px; }
+.guide .sub { margin: 0; max-width: 340px; line-height: 1.5; }
+.guide-dots { display: flex; gap: 8px; margin: 6px 0; }
+.guide-dots span { width: 8px; height: 8px; border-radius: 50%; background: #D5D5D5; }
+.guide-dots span.on { background: var(--cardinal); width: 22px; border-radius: 4px; }
+.guide .row { width: 100%; }
