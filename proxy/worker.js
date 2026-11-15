@@ -21,6 +21,8 @@ const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
 const SYSTEM_PROMPT = `You help USC students furnish their dorm rooms. You'll see one or more photos of a student's room and a list of items other students rent out on TroShare.
 
+Write every word of summary, name, reason, placement, and tips in English, even if the room, notes, or student might use another language.
+
 Recommend 3 to 6 things that would make this room more comfortable or useful, most important first. Base each one on something you can actually see in the photos (for example, no desk lighting, a bare floor by the window, nowhere to store things), and don't suggest things the room already has. When a TroShare item fits, use its id in \`item\`; otherwise use "other". Write reasons in one or two short sentences addressed to the student. In \`placement\`, say where in the room it would go, referring to what's in the photos. Use "must_have" only for things the room clearly lacks.
 
 Add up to 3 short tips that need no purchase (rearranging, using light from the window, and so on). If the photos don't show a room, say so in \`summary\` and return no recommendations.`;
@@ -28,17 +30,17 @@ Add up to 3 short tips that need no purchase (rearranging, using light from the 
 const SCHEMA = {
   type: 'object',
   properties: {
-    summary: { type: 'string', description: 'One or two sentences on what the room has and lacks.' },
+    summary: { type: 'string', description: 'English only. One or two sentences on what the room has and lacks.' },
     recommendations: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
           item: { type: 'string', enum: [...Object.keys(ITEM_NAMES), 'other'] },
-          name: { type: 'string' },
-          reason: { type: 'string' },
+          name: { type: 'string', description: 'English name of the suggestion.' },
+          reason: { type: 'string', description: 'English, one or two sentences.' },
           priority: { type: 'string', enum: ['must_have', 'nice_to_have'] },
-          placement: { type: 'string' },
+          placement: { type: 'string', description: 'English sentence saying where in the room it should go.' },
         },
         required: ['item', 'name', 'reason', 'priority', 'placement'],
         additionalProperties: false,

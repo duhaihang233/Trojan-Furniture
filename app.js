@@ -508,19 +508,21 @@
 
   // Category stand-ins at real-world size. The file name matches the item type.
   const AR_MODELS = {
-    lamp: 'about 41 cm tall',
-    floor: 'about 1.5 m tall',
-    fan: 'about 1 m tall',
-    bean: 'about 67 cm tall and 84 cm across',
-    tv: 'about 80 cm wide and 63 cm tall, with the stand',
-    topper: 'an XL twin, 91 cm by 203 cm',
-    cart: 'about 85 cm tall'
+    lamp: 'about 44 cm tall',
+    floor: 'about 1.6 m tall',
+    fan: 'about 1.03 m tall',
+    bean: 'about 70 cm tall and 83 cm across',
+    tv: 'about 74 cm wide and 51 cm tall',
+    topper: 'a folded XL twin, about 88 cm wide, 65 cm long, and 21 cm tall',
+    cart: 'about 92 cm tall'
   };
 
   function placementFor(type) {
     const recs = (room.analysis && room.analysis.recommendations) || [];
     const rec = recs.find((r) => r.item === type);
-    return rec ? rec.placement : '';
+    // The camera instructions stay in English. Ignore a spot sentence written in another language.
+    if (!rec || !rec.placement || /[\u3400-\u9fff]/.test(rec.placement)) return '';
+    return rec.placement;
   }
 
   function onIPhone() {
