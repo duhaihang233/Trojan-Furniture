@@ -327,7 +327,7 @@ const CONDITIONS = ['New', 'Like new', 'Good', 'Fair'];
 const HANDOFFS = ['both', 'drop', 'pickup'];
 const MAX_LISTING_PHOTOS = 4;
 const MAX_LISTING_PHOTO_BASE64 = 1_400_000; // ~1 MB; the app uploads ~640px JPEGs of about 60 KB
-const MAX_LISTINGS_PER_STUDENT = 20;
+const MAX_LISTINGS_PER_STUDENT = 100;
 
 const sellerName = (row) => (row.given || row.name || 'Trojan') + (row.family ? ' ' + row.family[0].toUpperCase() + '.' : '');
 

@@ -17,7 +17,7 @@ TroShare's back end is a single Cloudflare Worker ([worker.js](worker.js)). It d
   | Listing photos (JPEG) | KV namespace `PHOTOS` |
   | Profiles from before the database existed | KV namespace `PROFILES`, copied into D1 the first time each student shows up |
 
-- **Limits per student:** 20 listings with up to 4 photos each (about 1 MB per photo); 5 new listings, 30 chat messages and 5 room analyses per minute.
+- **Limits per student:** 100 listings with up to 4 photos each (about 1 MB per photo); 5 new listings, 30 chat messages and 5 room analyses per minute.
 - **AI room planner:** the Worker builds the whole Claude request itself (model `claude-opus-5-5`, prompt, JSON schema), so the key can't be used for anything else. It costs about $0.04 per analysis.
 
 ## Endpoints

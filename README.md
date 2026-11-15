@@ -17,8 +17,7 @@ Built for the USC **"Building for Trojans"** hackathon.
   TroShare server, so they follow you to any device you log in from.
 - **Interactive housing map** — tap a residence hall (Webb Tower, USC Village, New North, Pardee,
   Gateway, Parkside) to see what students there are renting out, with walking times from your hall.
-- **Browse & search on Home** — listings from real students come first, then sample listings
-  (labeled “Sample”) that show how TroShare works. Filter by category (lighting, cooling, seating, sleep, tech, storage),
+- **Browse & search on Home** — every student's listings, your own included. Filter by category (lighting, cooling, seating, sleep, tech, storage),
   search by item, seller or hall, and sort by distance or price.
 - **Listings** — photos, semester and full-year prices, handoff options, and the seller's name,
   class year, hall and verified USC badge. Tap the heart to save one to your favorites.
@@ -32,8 +31,7 @@ Built for the USC **"Building for Trojans"** hackathon.
 - **Checkout** — renting a real student's item sends them your rental request in a chat.
   (Payment and the rental record are simulated on your device for now.)
 - **Chat** — message any seller from their listing. Chats with real students are real: they arrive in
-  the other student's Inbox with an unread badge and update live while the chat is open. Sample
-  sellers answer automatically. Tap **“Got it — confirm handoff”** when you get the item.
+  the other student's Inbox with an unread badge and update live while the chat is open. Tap **“Got it — confirm handoff”** when you get the item.
 - **Room Preview tab** — two tabs at the top:
   - **AR Preview** — pick an item and place it in your room at real size with the phone camera
     (AR Quick Look on iPhone, Scene Viewer on Android, a 3D model on a computer).
@@ -69,7 +67,7 @@ python3 -m http.server 8000
 ```
 index.html            App shell + iOS home-screen meta tags
 styles.css            USC Cardinal & Gold design (Libre Caslon + Inter)
-data.js               Halls, item types and the sample listings
+data.js               Halls, item types, and the old sample listings (no longer shown; kept for demo data)
 app.js                Screens, routing and app logic (data from the server in proxy/)
 config.js             Server URL and Google sign-in client ID
 auth.js               USC login session
@@ -85,8 +83,9 @@ icons/                App icons
 ## Notes
 
 - Accounts, listings, photos and favorites are stored by the Cloudflare Worker in [`proxy/`](proxy/README.md)
-  (D1 database + KV), along with chats between real students. The built-in sample listings and their
-  sellers are not real students; rentals, payments and sample-seller chats are simulated on your device.
+  (D1 database + KV), along with chats between real students. The original sample items were moved onto
+  the server as Thomas Du's listings. Rentals, payments and the demo chats from **Load sample activity**
+  are simulated on your device.
 - The sample room photo (`images/sample-room.jpg`) is “Endicott College Stoneridge Hall empty dorm room”
   by Sdkb, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Endicott_College_Stoneridge_Hall_empty_dorm_room.jpg),
   licensed CC BY-SA 4.0.

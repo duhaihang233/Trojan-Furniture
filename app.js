@@ -116,9 +116,11 @@
   const retryQuietly = () => { if (server.error && !server.loading) loadServer().then(() => { if (server.loaded) rerender(); }); };
   window.addEventListener('online', retryQuietly);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) retryQuietly(); });
-  // Real listings first, then the built-in samples that show how TroShare works.
+  // Everything students can rent: available listings on the server. (The built-in sample listings in
+  // data.js are no longer shown; they now live on the server as Thomas Du's listings. They stay in
+  // data.js only so old demo rentals, chats and favorites that point at them still open.)
   function market() {
-    return server.listings.filter((l) => l.status === 'available').concat(D.listings);
+    return server.listings.filter((l) => l.status === 'available');
   }
   function findListing(id) {
     return server.listings.find((x) => x.id === id) || D.listings.find((x) => x.id === id) || null;
@@ -211,20 +213,17 @@
     const count = (id) => all.filter((l) => l.hall === id).length;
     // Browse lives on Home: the map's hall, the category chips and the search box all narrow one list.
     let items = all.filter((l) => (!cur || l.hall === cur.id) && (S.cat === 'all' || catOf(l) === S.cat));
-    const firstType = (l) => (l.type === 'micro' ? 0 : 1); // the microwave leads the samples
+    const firstType = (l) => (l.type === 'micro' ? 0 : 1); // microwaves lead the list
     const order = ui.sort === 'price' ? (a, b) => firstType(a) - firstType(b) || a.sem - b.sem : (a, b) => firstType(a) - firstType(b) || hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem;
-    // Every real listing comes first, your own included (marked "(you)"), so a seller sees what they
-    // just published. Samples fill in one card per kind of item, only for kinds nobody has listed yet.
-    const real = items.filter((l) => !l.sample).sort(order);
-    const seenTypes = new Set(real.map((l) => l.type));
-    items = real.concat(items.filter((l) => l.sample).sort(order).filter((l) => !seenTypes.has(l.type) && seenTypes.add(l.type)));
+    // Every listing, your own included (marked "(you)"), so a seller sees what they just published.
+    items = items.sort(order);
     const title = cur ? 'At ' + cur.name : 'Browse listings';
     const n = cur ? count(cur.id) : 0;
     const pill = cur ? (cur.home ? `${n} listings in your building` : `${n} listings at ${cur.name} · ${cur.walk}`) : 'Tap a hall to see what Trojans there are renting out';
     const next = S.rentals.find((r) => r.status === 'Scheduled');
     const nl = next && findListing(next.listingId);
-    // No error banner: the sample listings always show, and students' listings are retried quietly in the background.
-    const status = '';
+    // No error banner: listings are retried quietly in the background. Until they arrive, say so.
+    const status = server.loaded ? '' : '<span class="meta">Loading listings…</span>';
 
     return `${topbar()}
     <section class="hero">
