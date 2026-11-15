@@ -385,8 +385,7 @@ img { display: block; max-width: 100%; }
 .intro-red { position: absolute; left: 0; right: 0; top: 0; height: 100%; z-index: 2; background: var(--cardinal); transition: height .8s cubic-bezier(.65,0,.25,1); }
 .intro.to-login .intro-red { height: calc(var(--safe-top) + 196px); }
 .intro-gold { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: var(--gold); }
-.intro-replay { position: absolute; inset: 0; width: 100%; height: 100%; padding: var(--safe-top) 0 0; border: none; background: transparent; color: inherit; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-.intro-replay:focus-visible { outline: 3px solid var(--gold); outline-offset: -6px; }
+.intro-replay { position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; padding: var(--safe-top) 0 0; display: flex; align-items: center; justify-content: center; }
 .intro-mark { display: flex; flex-direction: column; align-items: center; gap: 18px; transition: transform .8s cubic-bezier(.65,0,.25,1); }
 .intro.to-login .intro-mark { transform: scale(.7); }
 .intro-word { display: flex; align-items: baseline; font-family: var(--serif); font-size: 64px; line-height: 1.25; font-weight: 700; white-space: nowrap; }

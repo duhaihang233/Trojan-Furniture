@@ -40,7 +40,6 @@
     }, 500));
   }
 
-  $('intro-replay').addEventListener('click', () => { if (!el.classList.contains('to-login')) play(); });
   $('intro-google').addEventListener('click', () => showWait(true));
   $('intro-cancel').addEventListener('click', () => showWait(false));
   $('intro-enter').addEventListener('click', () => { setAuth(true); close(); });
