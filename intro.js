@@ -158,7 +158,7 @@
       showError('');
       $('intro-wait-text').textContent = 'Starting the guest demo…';
       showWait(true);
-      try { await AUTH.signInAsGuest(); close(); }
+      try { await AUTH.signInAsGuest(); location.hash = '#/guide'; close(); }
       catch (err) { showWait(false); showError(err.message); }
       finally { $('intro-wait-text').textContent = 'Checking your USC account…'; }
     });

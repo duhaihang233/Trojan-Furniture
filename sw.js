@@ -1,7 +1,7 @@
 // TroShare service worker.
 // Pages, scripts and styles are network-first, so a new deploy shows up on the next load;
 // the cache is only a fallback for offline use. Images are cache-first because they rarely change.
-const CACHE = 'troshare-v42';
+const CACHE = 'troshare-v43';
 const ASSETS = [
   './', './index.html', './styles.css', './config.js', './auth.js', './data.js', './armodel.js', './app.js', './intro.js', './manifest.webmanifest',
   './vendor/model-viewer.min.js',

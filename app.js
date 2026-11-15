@@ -1250,6 +1250,7 @@
       <span class="guide-step">Step ${i + 1} of ${GUIDE.length}</span>
       <h2 class="serif">${esc(g.title)}</h2>
       <p class="sub">${esc(g.text)}</p>
+      ${last && AUTH.isGuest() ? '<p class="guide-guest">In the guest demo you can browse listings, preview them in AR, and try listing an item up to Publish.</p>' : ''}
       <div class="guide-dots" aria-hidden="true">${GUIDE.map((_, j) => `<span class="${j === i ? 'on' : ''}"></span>`).join('')}</div>
       <div class="row" style="gap:8px">${i ? '<button type="button" class="btn btn-outline" style="flex:1" data-action="guide-prev">Back</button>' : ''}<button type="button" class="btn btn-cardinal" style="flex:2" data-action="${last ? 'guide-done' : 'guide-next'}">${last ? 'Start browsing' : 'Next'}</button></div>
       ${last ? '' : '<button type="button" class="link" data-action="guide-done" style="align-self:center">Skip</button>'}
@@ -2393,7 +2394,7 @@
   // Signing in or out switches whose data is shown.
   const switchUser = () => {
     Object.assign(server, { listings: [], favorites: [], convs: [], msgs: {}, roommates: [], orders: [], ordersLoaded: false, notes: [], unreadNotes: 0, rating: null, loaded: false, error: null, at: 0 });
-    applyUser(); S = load(); ui.draft = null; room.analysis = null; render();
+    applyUser(); S = load(); ui.draft = null; ui.guide = 0; room.analysis = null; render();
     if (AUTH.signedIn()) syncFromServer();
   };
   window.addEventListener('ts-signed-in', switchUser);
