@@ -68,7 +68,7 @@ window.TS_DATA = (() => {
 
   const seedState = () => ({
     version: 1,
-    hall: null,
+    hall: 'webb',
     cat: 'all',
     cart: [],
     favorites: [findId('Chris W.', 'tv'), findId('Ava L.', 'topper'), findId('Dani R.', 'floor')],

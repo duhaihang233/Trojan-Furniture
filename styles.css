@@ -94,7 +94,7 @@ img { display: block; max-width: 100%; }
 }
 
 /* Map */
-.map { position: relative; background: #E9E6E1; margin-top: 5px; }
+.map { position: relative; background: #E9E6E1; margin-top: 28px; }
 .map img { width: 100%; height: auto; aspect-ratio: 1406 / 1436; }
 .pin { position: absolute; transform: translate(-50%, -100%); min-height: 34px; display: flex; align-items: center; gap: 5px; padding: 0 10px 0 6px; border-radius: 999px; border: 2px solid #fff; background: #fff; color: var(--ink); font-size: 12px; font-weight: 700; white-space: nowrap; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
 .pin .count { min-width: 20px; height: 20px; border-radius: 999px; background: var(--cardinal); color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
@@ -111,6 +111,7 @@ img { display: block; max-width: 100%; }
 .hero { background: var(--cardinal); color: #fff; padding: 36px 24px 40px; display: flex; flex-direction: column; gap: 16px; }
 .eyebrow { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--gold); }
 .hero h2 { margin: 0; font-family: var(--serif); font-size: 46px; line-height: 1.05; font-weight: 700; }
+.hero .hero-title { align-self: flex-start; line-height: 1; padding-bottom: 6px; border-bottom: 4px solid var(--gold); }
 .rule { width: 64px; height: 4px; background: var(--gold); }
 .hero p { margin: 0; font-size: 17px; line-height: 1.6; }
 

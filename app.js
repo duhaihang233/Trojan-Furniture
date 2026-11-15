@@ -13,7 +13,8 @@
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) { const s = JSON.parse(raw); if (s && s.version === 1) return s; }
+      // Filters are per-visit: every launch opens on your own hall (Webb Tower) with All categories.
+      if (raw) { const s = JSON.parse(raw); if (s && s.version === 1) { s.cat = 'all'; s.hall = D.me.hall; return s; } }
     } catch (e) { /* storage unavailable: fall back to fresh state */ }
     return D.seedState();
   }
@@ -127,6 +128,9 @@
     let items = all.filter((l) => (!cur || l.hall === cur.id) && (S.cat === 'all' || catOf(l) === S.cat));
     if (q) items = items.filter((l) => (nameOf(l) + ' ' + l.seller + ' ' + hallById(l.hall).name).toLowerCase().includes(q));
     items.sort(ui.sort === 'price' ? (a, b) => a.sem - b.sem : (a, b) => hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem);
+    // One card per kind of item: keep the closest (or cheapest, when sorting by price) listing of each, and leave your own listings to My Account.
+    const seenTypes = new Set();
+    items = items.filter((l) => l.owner !== 'me' && !seenTypes.has(l.type) && seenTypes.add(l.type));
     const title = cur ? 'At ' + cur.name : 'Browse listings';
     const n = cur ? count(cur.id) : 0;
     const pill = cur ? (cur.home ? `${n} listings in your building` : `${n} listings at ${cur.name} · ${cur.walk}`) : 'Tap a hall to see what Trojans there are renting out';
@@ -134,18 +138,13 @@
     const nl = next && findListing(next.listingId);
 
     return `${topbar()}
-    <div class="map">
-      <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
-      ${D.halls.map((h) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${esc(h.short)}</button>`).join('')}
-    </div>
-    <div class="map-pill"><span class="ico">${I.pin.replace('<svg', '<svg width="18" height="18"')}</span><span class="txt">${esc(pill)}</span>${cur ? '<button type="button" class="chip-btn" data-action="hall" data-id="">All halls</button>' : ''}</div>
-    <section class="hero">
-      <p class="eyebrow">Student-to-student rentals</p>
-      <h2>TroShare</h2>
-      <div class="rule"></div>
-      <p>Rent dorm essentials from other USC students by the semester. No company in the middle — just Trojans.</p>
-      <button type="button" class="btn btn-gold" data-action="scroll-list">Browse listings</button>
-      <a class="btn btn-outline-white" href="#/sell">List your stuff</a>
+    <section class="section" id="listings">
+      <div class="section-head"><h2>${esc(title)}</h2><span class="sub">${items.length} item${items.length === 1 ? '' : 's'}</span></div>
+      <label class="search"><span class="sr-only">Search listings</span>${I.search}<input type="search" placeholder="Lamps, fans, bean bags…" value="${esc(ui.q)}" data-input="q" autocomplete="off"></label>
+      <div class="chips" role="group" aria-label="Category">${D.categories.map((c) => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-action="cat" data-id="${c.id}" aria-pressed="${S.cat === c.id}">${c.label}</button>`).join('')}</div>
+      <div class="section-head"><span class="sub">${cur ? 'Only ' + esc(cur.name) + ' · tap “All halls” on the map below for everything' : 'From USC students across campus'}</span>
+        <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
+      ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : `<p class="empty">${q ? 'No listings match. Try another search.' : 'Nothing here yet. Try another hall on the map.'}</p>`}
     </section>
     ${nl ? `<section class="section">
       <div class="section-head"><h2>Next handoff</h2><a class="link" href="#/chat/${next.thread}">Chat →</a></div>
@@ -154,13 +153,14 @@
         <span class="grow"><span class="t-serif">${esc(nameOf(nl))}</span><span class="meta">From ${esc(nl.seller)} · ${next.handoff === 'drop' ? 'Delivered' : 'Pickup'}</span><span class="meta">${esc(next.when)} · ${esc(next.where)}</span></span>
         <span class="badge">${esc(next.status)}</span>
       </a></section>` : ''}
-    <section class="section" id="listings">
-      <div class="section-head"><h2>${esc(title)}</h2><span class="sub">${items.length} item${items.length === 1 ? '' : 's'}</span></div>
-      <label class="search"><span class="sr-only">Search listings</span>${I.search}<input type="search" placeholder="Lamps, fans, bean bags…" value="${esc(ui.q)}" data-input="q" autocomplete="off"></label>
-      <div class="chips" role="group" aria-label="Category">${D.categories.map((c) => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-action="cat" data-id="${c.id}" aria-pressed="${S.cat === c.id}">${c.label}</button>`).join('')}</div>
-      <div class="section-head"><span class="sub">${cur ? 'Only ' + esc(cur.name) + ' · tap “All halls” on the map for everything' : 'From USC students across campus'}</span>
-        <label class="sub">Sort <select data-input="sort" style="border:none;background:transparent;font-weight:700;color:var(--cardinal)"><option value="near" ${ui.sort === 'near' ? 'selected' : ''}>Closest</option><option value="price" ${ui.sort === 'price' ? 'selected' : ''}>Lowest price</option></select></label></div>
-      ${items.length ? `<div class="grid">${items.map(listingCard).join('')}</div>` : `<p class="empty">${q ? 'No listings match. Try another search.' : 'Nothing here yet. Try another hall on the map.'}</p>`}
+    <div class="map">
+      <img src="images/map.jpg" alt="Map of USC Housing buildings around the University Park campus">
+      ${D.halls.map((h) => `<button type="button" class="pin ${h.home ? 'home' : ''} ${S.hall === h.id ? 'on' : ''}" style="left:${h.left}%;top:${h.top}%" data-action="hall" data-id="${h.id}" aria-pressed="${S.hall === h.id}" aria-label="${esc(h.name)}, ${count(h.id)} listings${h.home ? ', your hall' : ''}">${h.home ? I.home : ''}<span class="count">${count(h.id)}</span>${esc(h.short)}</button>`).join('')}
+    </div>
+    <div class="map-pill"><span class="ico">${I.pin.replace('<svg', '<svg width="18" height="18"')}</span><span class="txt">${esc(pill)}</span>${cur ? '<button type="button" class="chip-btn" data-action="hall" data-id="">All halls</button>' : ''}</div>
+    <section class="hero">
+      <p class="eyebrow">Student-to-student rentals</p>
+      <h2 class="hero-title">TroShare</h2>
     </section>
     <p class="footer">A peer-to-peer marketplace for USC students.<br>Rent what you need, share what you don't — Trojan to Trojan.</p>`;
   }
