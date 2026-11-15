@@ -23,6 +23,11 @@ Built for the USC **"Building for Trojans"** hackathon.
 - **Checkout** — payment is held until you confirm the handoff.
 - **Chat** — message sellers, plan the handoff, and tap **“Got it — confirm handoff”** to release payment.
 - **List an item** — take a photo with your iPhone camera, set your price and handoff options, and publish.
+- **Plan your room with AI** — add photos of your room (or try a sample dorm room) and Claude suggests
+  what to rent, matched to the nearest TroShare listing, plus free fixes. Paste your own Anthropic API key
+  the first time; it's stored only in your browser and sent only to Anthropic.
+- **See it in your room** — on any listing, place the item on your room photo: drag to move, pinch or use
+  the slider to resize, twist to rotate. The product is cut out of its white studio photo automatically.
 - **My Account** — your rating, rentals, your own listings, recently viewed, favorites and payout info.
 - **Works like a native app on iPhone** — installable to the Home Screen, full-screen, offline-capable.
 
@@ -63,5 +68,11 @@ icons/                App icons
 
 - This is a hackathon prototype: sellers, ratings, payments and chat replies are sample data stored
   on your device. Use **My Account → Reset demo data** to start over.
+- The sample room photo (`images/sample-room.jpg`) is “Endicott College Stoneridge Hall empty dorm room”
+  by Sdkb, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Endicott_College_Stoneridge_Hall_empty_dorm_room.jpg),
+  licensed CC BY-SA 4.0.
+- The room planner calls the Claude API straight from the browser with the visitor's own key. A real launch
+  should route this through a TroShare server instead.
+- A native SwiftUI version of the app lives in [`ios/`](ios/README.md).
 - Product photos are placeholders; replace them with photos of the actual items before a real launch.
 - TroShare is a student project and is not affiliated with or endorsed by the University of Southern California.

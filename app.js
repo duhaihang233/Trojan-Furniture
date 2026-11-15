@@ -75,6 +75,8 @@
     camera: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><circle cx="12" cy="12.5" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>',
     send: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>',
+    sparkle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>',
+    viewfinder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="9" width="8" height="6" rx="1"/></svg>',
     verified: '<svg class="verified" role="img" aria-label="Verified USC student" viewBox="0 0 24 24" fill="#990000"><path d="M12 2l2.4 2.1 3.2-.3.9 3.1 2.8 1.6-1.1 3 1.1 3-2.8 1.6-.9 3.1-3.2-.3L12 22l-2.4-2.1-3.2.3-.9-3.1-2.8-1.6 1.1-3-1.1-3 2.8-1.6.9-3.1 3.2.3z"/><path d="M8.5 12.2l2.3 2.3 4.7-4.8" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   };
 
@@ -105,7 +107,7 @@
       ['home', '#/home', I.home, 'Home'], ['browse', '#/browse', I.search, 'Browse'], ['sell', '#/sell', I.plus, 'List'],
       ['inbox', '#/inbox', I.chat, 'Inbox'], ['account', '#/account', I.user, 'Account']
     ];
-    const active = { item: 'browse', checkout: 'browse', chat: 'inbox' }[route] || route;
+    const active = { item: 'browse', checkout: 'browse', chat: 'inbox', room: 'home', fit: 'browse' }[route] || route;
     const n = unreadCount();
     tabbar.innerHTML = tabs.map(([id, href, icon, label]) =>
       `<a href="${href}" class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''}>${icon}${label}${id === 'inbox' && n ? `<span class="dot" aria-label="${n} unread">${n}</span>` : ''}</a>`
@@ -142,6 +144,13 @@
       <p>Rent dorm essentials from other USC students by the semester. No company in the middle — just Trojans.</p>
       <button type="button" class="btn btn-gold" data-action="scroll-list">Browse listings</button>
       <a class="btn btn-outline-white" href="#/sell">List your stuff</a>
+    </section>
+    <section class="section">
+      <a class="card pad row room-cta" href="#/room">
+        <span class="room-cta-ico">${I.sparkle}</span>
+        <span class="grow"><span class="t-serif" style="font-size:18px">Plan your room with AI</span><span class="meta">Snap your room. Claude suggests what to rent, and you can see how each item fits.</span></span>
+        <span aria-hidden="true" class="chev">›</span>
+      </a>
     </section>
     ${nl ? `<section class="section">
       <div class="section-head"><h2>Next handoff</h2><a class="link" href="#/chat/${next.thread}">Chat →</a></div>
@@ -190,6 +199,7 @@
     const pay = ui.split ? amt / 2 : amt;
     return `${topbar(nameOf(l), '#/home')}
     <div class="photo"><img src="${esc(imgOf(l))}" alt="${esc(nameOf(l))}, the seller's actual item"><span class="badge">${esc(l.condition)}</span>
+      <a class="fit-btn" href="#/fit/${encodeURIComponent(id)}">${I.viewfinder}See it in your room</a>
       ${mine ? '' : `<button type="button" class="icon-btn" data-action="fav" data-id="${id}" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites" style="position:absolute;top:8px;left:8px;color:var(--cardinal)">${I.heart(fav)}</button>`}</div>
     <section class="section">
       <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2><p class="sub" style="margin:4px 0 0">${esc(typeOf(l).blurb)}</p></div>
@@ -372,6 +382,339 @@
     <p class="footer">A peer-to-peer marketplace for USC students.<br>Rent what you need, share what you don't — Trojan to Trojan.</p>`;
   }
 
+  /* ---------- AI room planner + "see it in your room" ---------- */
+  const KEY_STORE = 'troshare-anthropic-key';
+  const ROOM_MAX = 5;
+  const SAMPLE_ROOM = 'images/sample-room.jpg';
+  // Starting placement per item type: [longest side as a fraction of the photo width, vertical center (fraction of height)].
+  const ROOM_FIT = { tv: [0.3, 0.5], bean: [0.3, 0.75], lamp: [0.14, 0.5], floor: [0.36, 0.62], fan: [0.22, 0.62], topper: [0.45, 0.75], cart: [0.22, 0.62] };
+  // Room photos are kept in memory only (they're too big for localStorage and private to this visit).
+  const room = { photos: [], sample: null, analysis: null, busy: false, error: null };
+  const fit = { id: null, idx: 0, x: 0.5, y: 0.65, size: 0.3, rot: 0, flip: false };
+  const cutouts = {}; // product image src -> PNG data URL with the white studio backdrop removed ('' while pending or if it failed)
+
+  function apiKey() { try { return localStorage.getItem(KEY_STORE) || ''; } catch (e) { return ''; } }
+  function setApiKey(k) {
+    try { if (k) localStorage.setItem(KEY_STORE, k); else localStorage.removeItem(KEY_STORE); }
+    catch (e) { toast("This browser won't save the key"); }
+  }
+
+  // Nearest listing of a type (your hall first, then walking distance, then price).
+  function bestListing(type) {
+    return market().filter((l) => l.type === type && l.owner !== 'me')
+      .sort((a, b) => hallById(a.hall).mins - hallById(b.hall).mins || a.sem - b.sem)[0] || null;
+  }
+
+  const sampleCredit = () => '<span class="credit">Sample room: “Endicott College Stoneridge Hall empty dorm room” by Sdkb, <a href="https://commons.wikimedia.org/wiki/File:Endicott_College_Stoneridge_Hall_empty_dorm_room.jpg" target="_blank" rel="noopener">Wikimedia Commons</a>, CC BY-SA 4.0.</span>';
+
+  function roomPhotoStrip(selectable) {
+    const slots = room.photos.map((p, i) => `<div class="photo-slot ${selectable && fit.idx === i ? 'sel' : ''}">
+      ${selectable ? `<button type="button" class="slot-pick" data-action="fit-photo" data-id="${i}" aria-pressed="${fit.idx === i}" aria-label="Use room photo ${i + 1}"><img src="${p}" alt=""></button>` : `<img src="${p}" alt="Room photo ${i + 1}">`}
+      <button type="button" class="x" data-action="rm-room" data-id="${i}" aria-label="Remove room photo ${i + 1}">✕</button></div>`).join('');
+    const room_left = room.photos.length < ROOM_MAX;
+    return `<div class="photos">${slots}
+      ${room_left ? `<label class="photo-slot add">${I.camera}${room.photos.length ? 'Add more' : 'Add photos'}<input type="file" accept="image/*" multiple class="sr-only" data-input="room-photo"></label>` : ''}
+      ${room_left && !room.sample ? `<button type="button" class="photo-slot add" data-action="sample-room">${I.home}Use a sample room</button>` : ''}
+    </div>`;
+  }
+
+  function roomScreen() {
+    const key = apiKey();
+    const a = room.analysis;
+    let action;
+    if (!key) {
+      action = `<form class="card pad stack" data-form="apikey">
+        <label class="label" for="f-key">Anthropic API key</label>
+        <input id="f-key" name="key" class="input" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+        <span class="meta">Recommendations come from Claude. Paste a key from console.anthropic.com. It's saved only in this browser and sent only to Anthropic.</span>
+        <button type="submit" class="btn btn-cardinal">Save key</button>
+      </form>`;
+    } else if (room.busy) {
+      action = `<div class="callout" role="status"><span class="spinner" aria-hidden="true"></span><span><b>Looking at your room…</b> This usually takes 20–40 seconds.</span></div>`;
+    } else {
+      action = `<button type="button" class="btn btn-cardinal" data-action="analyze" ${room.photos.length ? '' : 'disabled'}>${a ? 'Analyze again' : 'Get recommendations'}</button>
+        ${room.photos.length ? '' : '<span class="note">Add at least one photo first.</span>'}
+        <button type="button" class="link" data-action="clear-key" style="align-self:center">Use a different API key</button>`;
+    }
+    return `${topbar('Plan your room', '#/home')}
+    <section class="section">
+      <div><h2 class="serif" style="margin:0;font-size:26px">Plan your room</h2>
+        <p class="sub" style="margin:6px 0 0">Add a few photos of your room from different corners. Claude looks at what's there and suggests what to rent from other Trojans, and you can preview each item in your photos.</p></div>
+      ${roomPhotoStrip(false)}
+      ${room.sample ? sampleCredit() : ''}
+      ${action}
+      ${room.error ? `<div class="callout" role="alert">${I.shield}<span>${esc(room.error)}</span></div>` : ''}
+    </section>
+    ${a ? roomResults(a) : ''}
+    <p class="footer">Your photos are sent to Anthropic to be analyzed and aren't stored by TroShare.<br>AI suggestions can miss things, so check sizes before you rent.</p>`;
+  }
+
+  function roomResults(a) {
+    return `<section class="section" id="room-results">
+      <div class="card pad stack"><span class="eyebrow-red">${I.sparkle}What Claude sees</span><span style="font-size:15px;line-height:1.5">${esc(a.summary)}</span></div>
+      ${a.recommendations.length ? `<div class="section-head"><h2>Get these</h2><span class="sub">${a.recommendations.length} ideas</span></div>${a.recommendations.map(recCard).join('')}` : ''}
+      ${a.tips && a.tips.length ? `<div class="section-head"><h2>Free fixes</h2></div><div class="card pad stack">${a.tips.map((t) => `<div class="row" style="align-items:flex-start;gap:8px"><span class="tip-dot" aria-hidden="true"></span><span style="font-size:14px;line-height:1.45">${esc(t)}</span></div>`).join('')}</div>` : ''}
+    </section>`;
+  }
+
+  function recCard(r) {
+    const l = D.types[r.item] ? bestListing(r.item) : null;
+    const must = r.priority === 'must_have';
+    return `<div class="card pad rec">
+      <div class="row" style="justify-content:space-between;align-items:baseline"><span class="t-serif" style="font-size:18px">${esc(r.name)}</span><span class="badge ${must ? 'must' : 'gray'}">${must ? 'Must-have' : 'Nice to have'}</span></div>
+      <p style="margin:0;font-size:14px;line-height:1.45">${esc(r.reason)}</p>
+      <span class="where" style="align-items:flex-start">${I.pin}${esc(r.placement)}</span>
+      ${l ? `<div class="rec-listing">
+          <div class="row"><span class="thumb"><img src="${esc(imgOf(l))}" alt=""></span><span class="grow"><b>${money(l.sem)}/sem · ${esc(l.seller)}</b><span class="meta">${esc(hallById(l.hall).name)} · ${esc(hallById(l.hall).walk)}</span></span></div>
+          <div class="row" style="gap:8px"><a class="btn btn-outline btn-small" style="flex:1" href="#/fit/${l.id}">See it in my room</a><a class="btn btn-cardinal btn-small" style="flex:1" href="#/item/${l.id}">View listing</a></div>
+          <button type="button" class="link" data-action="browse-type" data-id="${esc(r.item)}" style="align-self:flex-start;padding:4px 0">Browse all ${esc(D.types[r.item].name.toLowerCase())}s →</button>
+        </div>` : '<span class="meta">Nobody is renting this out on TroShare yet.</span>'}
+    </div>`;
+  }
+
+  async function analyzeRoom() {
+    const key = apiKey();
+    if (!key || !room.photos.length || room.busy) return;
+    room.busy = true; room.error = null; rerender();
+    const catalog = Object.entries(D.types).map(([id, t]) => {
+      const ps = D.listings.filter((l) => l.type === id).map((l) => l.sem);
+      return `- ${id}: ${t.name}, ${ps.length} listed, $${Math.min(...ps)}–$${Math.max(...ps)} per semester`;
+    }).join('\n');
+    const content = room.photos.map((url) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: url.split(',')[1] } }));
+    content.push({ type: 'text', text: `These are photos of my dorm room in ${hallById(D.me.hall).name} at USC. What should I get for it?\n\nItems other students rent out on TroShare right now (use these ids):\n${catalog}` });
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2026-10-21',
+          'anthropic-beta': 'server-side-fallback-2026-07-01',
+          // Required for calling the API straight from a web page. The key is the visitor's own.
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-opus-5-5',
+          max_tokens: 16000,
+          system: ROOM_PROMPT,
+          messages: [{ role: 'user', content }],
+          output_config: { effort: 'medium', format: { type: 'json_schema', schema: ROOM_SCHEMA } },
+          fallbacks: 'default'
+        })
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(res.status === 401
+          ? "Anthropic didn't accept that API key. Tap “Use a different API key” and try again."
+          : `The request failed (${res.status}): ${(json && json.error && json.error.message) || 'unknown error'}`);
+      }
+      if (json.stop_reason === 'refusal') throw new Error("Claude couldn't analyze these photos. Try different photos of your room.");
+      if (json.stop_reason === 'max_tokens') throw new Error('The answer was cut off. Try again with fewer photos.');
+      const block = (json.content || []).find((b) => b.type === 'text');
+      const parsed = block ? JSON.parse(block.text) : null;
+      if (!parsed || !Array.isArray(parsed.recommendations)) throw new SyntaxError('bad shape');
+      room.analysis = parsed;
+    } catch (err) {
+      if (err instanceof SyntaxError) room.error = "Couldn't read Claude's answer. Try again.";
+      else if (err instanceof TypeError) room.error = "Couldn't reach Anthropic. Check your connection and try again.";
+      else room.error = err.message;
+    }
+    room.busy = false;
+    if (parse().route === 'room') {
+      rerender();
+      const r = document.getElementById('room-results');
+      if (r && room.analysis) r.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  const ROOM_PROMPT = 'You help USC students furnish their dorm rooms. You\'ll see one or more photos of a student\'s room and a list of items other students rent out on TroShare.\n\n' +
+    'Recommend 3 to 6 things that would make this room more comfortable or useful, most important first. Base each one on something you can actually see in the photos (for example, no desk lighting, a bare floor by the window, nowhere to store things), and don\'t suggest things the room already has. When a TroShare item fits, use its id in `item`; otherwise use "other". Write reasons in one or two short sentences addressed to the student. In `placement`, say where in the room it would go, referring to what\'s in the photos. Use "must_have" only for things the room clearly lacks.\n\n' +
+    'Add up to 3 short tips that need no purchase (rearranging, using light from the window, and so on). If the photos don\'t show a room, say so in `summary` and return no recommendations.';
+
+  const ROOM_SCHEMA = {
+    type: 'object',
+    properties: {
+      summary: { type: 'string', description: 'One or two sentences on what the room has and lacks.' },
+      recommendations: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            item: { type: 'string', enum: Object.keys(D.types).concat('other') },
+            name: { type: 'string' },
+            reason: { type: 'string' },
+            priority: { type: 'string', enum: ['must_have', 'nice_to_have'] },
+            placement: { type: 'string' }
+          },
+          required: ['item', 'name', 'reason', 'priority', 'placement'],
+          additionalProperties: false
+        }
+      },
+      tips: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['summary', 'recommendations', 'tips'],
+    additionalProperties: false
+  };
+
+  function fitScreen(id) {
+    const l = findListing(id);
+    if (!l) return `${topbar('In your room', '#/home')}<p class="empty">This listing is gone.</p>`;
+    if (fit.id !== id) resetFit(l, id);
+    if (fit.idx >= room.photos.length) fit.idx = 0;
+    const src = imgOf(l);
+    if (!(src in cutouts)) makeCutout(src);
+    const cut = cutouts[src];
+    return `${topbar('In your room', '#/item/' + encodeURIComponent(id))}
+    <section class="section">
+      ${room.photos.length ? `
+        <div class="fit-stage" id="fit-stage">
+          <img class="fit-room" src="${room.photos[fit.idx]}" alt="Your room photo" draggable="false">
+          <img class="fit-item ${cut ? '' : 'raw'}" id="fit-item" src="${esc(cut || src)}" alt="${esc(nameOf(l))} placed on your room photo" draggable="false">
+          <span class="fit-tag">Approximate size</span>
+        </div>
+        <span class="meta">Drag to move. Pinch or use the slider to resize; twist with two fingers to rotate.</span>
+        <label class="row" style="gap:10px"><span class="label" style="flex:none">Size</span><input type="range" min="4" max="90" value="${Math.round(fit.size * 100)}" data-input="fit-size" aria-label="Item size" style="flex:1;accent-color:var(--cardinal)"></label>
+        <div class="row" style="gap:8px">
+          <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="fit-flip">Flip</button>
+          <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="fit-rotate">Rotate</button>
+          <button type="button" class="btn btn-outline btn-small" style="flex:1" data-action="fit-reset" data-id="${esc(id)}">Reset</button>
+        </div>
+        <span class="label">Your room photos</span>
+        ${roomPhotoStrip(true)}
+        ${room.sample ? sampleCredit() : ''}`
+      : `<div class="stack"><h2 class="serif" style="margin:0;font-size:24px">See how the ${esc(nameOf(l).toLowerCase())} fits</h2>
+          <p class="sub" style="margin:0">Add a photo of the spot where it would go, or try it in a sample dorm room. Then move and resize it on top.</p></div>
+        ${roomPhotoStrip(false)}`}
+      <div class="card pad row"><span class="thumb"><img src="${esc(src)}" alt=""></span><span class="grow"><span class="t-serif">${esc(nameOf(l))}</span><span class="meta">${money(l.sem)}/semester · ${esc(l.seller)}</span></span>
+        ${l.owner === 'me' ? '' : `<button type="button" class="btn btn-cardinal btn-small" data-action="fit-rent" data-id="${esc(id)}">Rent</button>`}</div>
+    </section>`;
+  }
+
+  function resetFit(l, id) {
+    const [size, y] = ROOM_FIT[l.type] || [0.3, 0.65];
+    Object.assign(fit, { id, x: 0.5, y, size, rot: 0, flip: false });
+  }
+
+  function applyFit() {
+    const el = document.getElementById('fit-item');
+    if (!el) return;
+    el.style.left = (fit.x * 100) + '%';
+    el.style.top = (fit.y * 100) + '%';
+    el.style.width = (fit.size * 100) + '%';
+    el.style.transform = `translate(-50%, -50%) rotate(${fit.rot}deg) scaleX(${fit.flip ? -1 : 1})`;
+    const slider = app.querySelector('[data-input="fit-size"]');
+    if (slider && document.activeElement !== slider) slider.value = Math.round(fit.size * 100);
+  }
+
+  // Drag with one finger or the mouse; pinch and twist with two fingers; ctrl+wheel / trackpad pinch on desktop.
+  function setupFit() {
+    const stage = document.getElementById('fit-stage');
+    if (!stage) return;
+    applyFit();
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    const pts = new Map();
+    let start = null;
+    const snap = () => ({ x: fit.x, y: fit.y, size: fit.size, rot: fit.rot, p: [...pts.values()].map((q) => ({ ...q })) });
+    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const ang = (a, b) => Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+    const mid = (p) => ({ x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 });
+    stage.addEventListener('pointerdown', (e) => {
+      stage.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      start = snap();
+    });
+    stage.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId) || !start) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const r = stage.getBoundingClientRect();
+      const p = [...pts.values()];
+      if (p.length === 1 && start.p.length === 1) {
+        fit.x = clamp(start.x + (p[0].x - start.p[0].x) / r.width, 0, 1);
+        fit.y = clamp(start.y + (p[0].y - start.p[0].y) / r.height, 0, 1);
+      } else if (p.length >= 2 && start.p.length >= 2) {
+        fit.size = clamp(start.size * dist(p[0], p[1]) / (dist(start.p[0], start.p[1]) || 1), 0.04, 0.9);
+        fit.rot = start.rot + ang(p[0], p[1]) - ang(start.p[0], start.p[1]);
+        const m0 = mid(start.p), m1 = mid(p);
+        fit.x = clamp(start.x + (m1.x - m0.x) / r.width, 0, 1);
+        fit.y = clamp(start.y + (m1.y - m0.y) / r.height, 0, 1);
+      }
+      applyFit();
+    });
+    const end = (e) => { pts.delete(e.pointerId); start = pts.size ? snap() : null; };
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
+    stage.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      fit.size = clamp(fit.size * Math.exp(-e.deltaY / 200), 0.04, 0.9);
+      applyFit();
+    }, { passive: false });
+  }
+
+  function makeCutout(src) {
+    cutouts[src] = '';
+    loadImage(src)
+      .then((img) => { cutouts[src] = removeBackdrop(img) || ''; })
+      .catch(() => { /* keep the original photo */ })
+      .then(() => { if (parse().route === 'fit' && cutouts[src]) { render(); } });
+  }
+
+  // Clears near-white pixels connected to the photo's edges (so white parts inside the product stay),
+  // feathers the edge, and crops to what's left.
+  function removeBackdrop(img) {
+    const s = Math.min(1, 800 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * s)), h = Math.max(1, Math.round(img.naturalHeight * s));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h);
+    const px = data.data;
+    const SOLID = 226, CLEAR = 246; // darkest channel: <= SOLID keeps, >= CLEAR removes, between feathers
+    const light = (p) => Math.min(px[p * 4], px[p * 4 + 1], px[p * 4 + 2]);
+    const seen = new Uint8Array(w * h);
+    const stack = [];
+    const seed = (p) => { if (!seen[p] && light(p) > SOLID) { seen[p] = 1; stack.push(p); } };
+    for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
+    for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
+    while (stack.length) {
+      const p = stack.pop();
+      const l = light(p);
+      px[p * 4 + 3] = l >= CLEAR ? 0 : Math.round(255 * (CLEAR - l) / (CLEAR - SOLID));
+      const x = p % w;
+      if (x > 0) seed(p - 1);
+      if (x < w - 1) seed(p + 1);
+      if (p >= w) seed(p - w);
+      if (p < w * (h - 1)) seed(p + w);
+    }
+    let minX = w, minY = h, maxX = -1, maxY = -1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (px[(y * w + x) * 4 + 3] > 24) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX <= minX || maxY <= minY) return null;
+    ctx.putImageData(data, 0, 0);
+    const out = document.createElement('canvas');
+    out.width = maxX - minX + 1; out.height = maxY - minY + 1;
+    out.getContext('2d').drawImage(c, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
+    return out.toDataURL('image/png');
+  }
+
+  function addRoomFiles(files) {
+    const list = Array.from(files || []).slice(0, ROOM_MAX - room.photos.length);
+    if (!list.length) return;
+    Promise.all(list.map((f) => compress(f, 1568, 0.82).catch(() => null))).then((urls) => {
+      const ok = urls.filter(Boolean);
+      room.photos.push(...ok);
+      if (ok.length < list.length) toast("Couldn't read one of those photos");
+      rerender();
+    });
+  }
+
   /* ---------- router ---------- */
   function parse() {
     const parts = (location.hash.replace(/^#\/?/, '') || 'home').split('/');
@@ -389,10 +732,13 @@
       case 'inbox': html = inboxScreen(); break;
       case 'chat': html = chatScreen(id); break;
       case 'account': html = accountScreen(); break;
+      case 'room': html = roomScreen(); break;
+      case 'fit': html = fitScreen(id); break;
       default: html = homeScreen();
     }
     app.innerHTML = html;
     renderTabbar(route);
+    if (route === 'fit') setupFit();
     if (location.hash !== lastHash) {
       lastHash = location.hash;
       if (route === 'chat') { const th = document.getElementById('thread'); if (th) th.lastElementChild && th.lastElementChild.scrollIntoView({ block: 'end' }); }
@@ -491,6 +837,30 @@
       case 'logout':
         if (window.TS_INTRO) window.TS_INTRO.logout();
         break;
+      case 'analyze': analyzeRoom(); break;
+      case 'clear-key': setApiKey(''); room.error = null; rerender(); break;
+      case 'rm-room': {
+        const [gone] = room.photos.splice(Number(id), 1);
+        if (gone === room.sample) room.sample = null;
+        rerender(); break;
+      }
+      case 'sample-room':
+        loadImage(SAMPLE_ROOM).then((img) => {
+          const url = toJpeg(img, 1568, 0.82);
+          room.photos.push(url); room.sample = url; fit.idx = room.photos.length - 1; rerender();
+        }).catch(() => toast("Couldn't load the sample room"));
+        break;
+      case 'fit-photo': fit.idx = Number(id); rerender(); break;
+      case 'fit-flip': fit.flip = !fit.flip; applyFit(); break;
+      case 'fit-rotate': fit.rot += 15; applyFit(); break;
+      case 'fit-reset': { const l = findListing(id); if (l) { resetFit(l, id); applyFit(); } break; }
+      case 'fit-rent': {
+        const l = findListing(id);
+        S.cart = S.cart.filter((c) => c.listingId !== id);
+        S.cart.push({ listingId: id, plan: 'sem', handoff: l.handoff === 'pickup' ? 'pick' : 'drop' });
+        save(); location.hash = '#/checkout'; toast(nameOf(l) + ' added'); break;
+      }
+      case 'browse-type': ui.q = D.types[id].name; S.cat = 'all'; save(); location.hash = '#/browse'; break;
       case 'cond': ui.draft.condition = id; rerender(); break;
       case 'rm-photo': ui.draft.photos.splice(Number(id), 1); rerender(); break;
     }
@@ -503,6 +873,7 @@
     const k = el.dataset.input;
     if (!k) return;
     if (k === 'sort') { ui.sort = el.value; rerender(); return; }
+    if (k === 'room-photo') { addRoomFiles(el.files); return; }
     const d = ui.draft;
     if (!d) return;
     if (k === 'photo') {
@@ -523,12 +894,19 @@
       const n = app.querySelector('[data-input="q"]'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { /* ignore */ } }
       return;
     }
+    if (k === 'fit-size') { fit.size = Number(el.value) / 100; applyFit(); return; }
     if (ui.draft && (k === 'title' || k === 'sem' || k === 'year1')) ui.draft[k] = el.value;
   });
 
   app.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
+    if (f.dataset.form === 'apikey') {
+      const key = f.querySelector('input').value.trim();
+      if (!key) return toast('Paste your API key first');
+      setApiKey(key); room.error = null; toast('Key saved in this browser'); rerender();
+      return;
+    }
     if (f.dataset.form === 'chat') {
       const input = f.querySelector('input');
       const text = input.value.trim();
@@ -556,22 +934,26 @@
     }
   });
 
-  function compress(file) {
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+  function toJpeg(img, max, quality) {
+    const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', quality);
+  }
+  function compress(file, max = 640, quality = 0.78) {
     return new Promise((resolve, reject) => {
       const r = new FileReader();
       r.onerror = reject;
-      r.onload = () => {
-        const img = new Image();
-        img.onerror = reject;
-        img.onload = () => {
-          const max = 640, s = Math.min(1, max / Math.max(img.width, img.height));
-          const c = document.createElement('canvas');
-          c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-          resolve(c.toDataURL('image/jpeg', 0.78));
-        };
-        img.src = r.result;
-      };
+      r.onload = () => loadImage(r.result).then((img) => resolve(toJpeg(img, max, quality)), reject);
       r.readAsDataURL(file);
     });
   }

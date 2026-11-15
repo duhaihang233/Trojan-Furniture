@@ -1,10 +1,10 @@
 // TroShare service worker: caches the app shell so it opens offline.
-const CACHE = 'troshare-v3';
+const CACHE = 'troshare-v4';
 const ASSETS = [
   './', './index.html', './styles.css', './data.js', './app.js', './intro.js', './manifest.webmanifest',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png',
   './images/map.jpg', './images/bean.jpg', './images/lamp.jpg', './images/floor.jpg',
-  './images/fan.jpg', './images/topper.jpg', './images/tv.jpg', './images/cart.jpg'
+  './images/fan.jpg', './images/topper.jpg', './images/tv.jpg', './images/cart.jpg', './images/sample-room.jpg'
 ];
 
 self.addEventListener('install', (e) => {
