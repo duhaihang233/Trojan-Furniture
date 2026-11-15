@@ -48,7 +48,7 @@ Finishes:
 - screen: a powered-off display or monitor screen (flat panels facing +Z)
 - light: the glowing inside of a lamp shade or a light bulb
 
-If the photos don't show a physical item that could sit in a dorm room, set \`ok\` to false, explain why in \`problem\`, and return an empty \`parts\` list.`;
+If the photos don't show a physical item that could sit in a dorm room, set \`ok\` to false, explain why in \`problem\` in one short sentence addressed to the seller (for example, "This photo shows a map, not an item; add a photo of the item itself."), and return an empty \`parts\` list.`;
 
 const vec3 = { type: 'array', items: { type: 'number' }, description: '[x, y, z] in meters' };
 const FINISHES = ['plastic', 'glossy_plastic', 'metal', 'chrome', 'brass', 'wood', 'fabric', 'knit', 'linen', 'leather', 'quilted', 'rubber', 'ceramic', 'glass', 'screen', 'light'];
@@ -63,7 +63,7 @@ export const AR_SCHEMA = {
   type: 'object',
   properties: {
     ok: { type: 'boolean' },
-    problem: { type: 'string', description: 'Why the item could not be modeled; empty when ok is true.' },
+    problem: { type: 'string', description: 'One short sentence on why the item could not be modeled; empty when ok is true.' },
     item: { type: 'string', description: 'What the item is, in a few words.' },
     size_m: { ...vec3, description: 'Overall [width, height, depth] in meters.' },
     parts: {
@@ -118,6 +118,15 @@ const MAX_PARTS = 24;
 const MAX_SHAPES = 80;
 const LIMIT = 3; // meters from the center; dorm items are smaller than this
 
+// Keeps whole sentences, up to about 160 characters.
+function shortReason(text) {
+  const t = String(text || '').trim() || 'Claude could not model this item from the photos.';
+  if (t.length <= 160) return t;
+  const cut = t.slice(0, 160);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('; '));
+  return end > 40 ? cut.slice(0, end + 1) : cut.replace(/\s+\S*$/, '') + '…';
+}
+
 const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : null);
 const v3 = (v, lo, hi) => (Array.isArray(v) && v.length === 3 ? v.map((x) => num(x, lo, hi)) : null);
 const ok3 = (v) => v && v.every((x) => x !== null);
@@ -128,7 +137,7 @@ const ok3 = (v) => v && v.every((x) => x !== null);
  */
 export function cleanArSpec(raw) {
   if (!raw || typeof raw !== 'object') return { problem: 'The model description was empty.' };
-  if (raw.ok === false) return { problem: String(raw.problem || 'Claude could not model this item from the photos.').slice(0, 200) };
+  if (raw.ok === false) return { problem: shortReason(raw.problem) };
   let shapes = 0;
   const parts = [];
   for (const p of Array.isArray(raw.parts) ? raw.parts.slice(0, MAX_PARTS) : []) {

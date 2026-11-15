@@ -310,7 +310,11 @@
 
   function itemScreen(id) {
     const l = findListing(id);
-    if (!l) return `${topbar('Listing', '#/home')}<p class="empty">${server.loaded ? 'This listing is gone.' : 'Loading…'}</p>`;
+    if (!l) {
+      // It may have been listed after this page loaded: check the server once before calling it gone.
+      if (server.loaded && ui.lookedUp !== id) { ui.lookedUp = id; syncFromServer(); return `${topbar('Listing', '#/home')}<p class="empty">Loading…</p>`; }
+      return `${topbar('Listing', '#/home')}<p class="empty">${server.loaded && !server.loading ? 'This listing is gone.' : 'Loading…'}</p>`;
+    }
     if (ui.itemId !== id) {
       ui.itemId = id; ui.photoIdx = 0; ui.plan = 'sem'; ui.split = false;
       ui.hand = l.handoff === 'pickup' ? 'pick' : 'drop';
