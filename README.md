@@ -76,6 +76,11 @@ Built for the USC **"Building for Trojans"** hackathon.
 3. Tap the **Share** button → **Add to Home Screen** → **Add**.
 4. Open **TroShare** from your Home Screen. It runs full-screen like a native app.
 
+Google's sign-in button doesn't work inside a Home Screen web app, so there TroShare shows its own
+**Continue with Google** button, which signs in on Google's page and comes back. For that, the app's address
+(`https://duhaihang233.github.io/Trojan-Furniture/`) must be listed under **Authorized redirect URIs** for the
+OAuth client in Google Cloud Console (APIs & Services → Credentials).
+
 ## Run it locally
 
 No build step and no dependencies — it's plain HTML, CSS and JavaScript.

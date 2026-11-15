@@ -77,17 +77,70 @@
     return gsiLoad;
   }
   const LOAD_ERRORS = {
-    blocked: "Google sign-in was blocked, so the button can't appear. Turn off ad or tracker blocking for this site (or try another browser), and if your network blocks Google, connect to a VPN. Then tap Try again.",
-    slow: "Google sign-in is taking too long to load. Check your connection, then tap Try again."
+    blocked: "Google's sign-in button was blocked. Tap Continue with Google above to sign in on Google's page instead, or turn off ad or tracker blocking for this site and tap Try again.",
+    slow: "Google's sign-in button is taking too long to load. Tap Continue with Google above to sign in on Google's page instead, or tap Try again."
   };
   $('intro-retry').addEventListener('click', () => { $('intro-retry').hidden = true; showError(''); renderGoogleButton(); });
+
+  /* ---- Sign-in on Google's own page (OpenID Connect, response_type=id_token) ----
+     Google's button (gsi/client) doesn't work in an iPhone Home Screen web app: the script stalls or its
+     popup can't report back. There we send the student to Google's sign-in page instead, and Google sends
+     them back to this page with an ID token in the URL fragment. It's the same kind of token the button
+     gives, so the TroShare server checks it the same way. The return address must be listed under
+     "Authorized redirect URIs" for this client ID in Google Cloud Console. */
+  const REDIRECT_URI = new URL('./', location.href).href;
+  const standalone = () => !!(navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+  const randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+  function startRedirect() {
+    const nonce = randomId(), state = randomId();
+    try { localStorage.setItem('ts-oauth', JSON.stringify({ nonce, state, at: Date.now() })); } catch (e) { /* private mode: the check below fails safely */ }
+    const q = new URLSearchParams({
+      client_id: CFG.googleClientId, redirect_uri: REDIRECT_URI, response_type: 'id_token', scope: 'openid email profile',
+      nonce, state, hd: 'usc.edu', prompt: 'select_account'
+    });
+    location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + q);
+  }
+  // Coming back from Google: #id_token=…&state=… (or #error=…). Returns true if this load is a sign-in return.
+  function finishRedirect() {
+    const h = location.hash;
+    if (!/^#(.*&)?(id_token|error)=/.test(h)) return false;
+    const q = new URLSearchParams(h.slice(1));
+    history.replaceState(null, '', location.pathname + location.search + '#/home');
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem('ts-oauth') || 'null'); localStorage.removeItem('ts-oauth'); } catch (e) { /* ignore */ }
+    const token = q.get('id_token');
+    let nonce = null;
+    try { nonce = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).nonce; } catch (e) { /* not a token */ }
+    showLogin();
+    if (q.get('error')) { showError(q.get('error') === 'access_denied' ? 'Sign-in was canceled. Tap Continue with Google to try again.' : "Google couldn't sign you in (" + q.get('error') + '). Try again.'); return true; }
+    if (!saved || q.get('state') !== saved.state || nonce !== saved.nonce || Date.now() - saved.at > 15 * 60000) {
+      showError('That sign-in expired. Tap Continue with Google to try again.');
+      return true;
+    }
+    onCredential({ credential: token });
+    return true;
+  }
+  // The login screen without the opening animation (after coming back from Google).
+  function showLogin() {
+    clear();
+    el.hidden = false;
+    lockApp(true);
+    el.classList.add('play', 'to-login');
+    renderGoogleButton();
+  }
+  function renderRedirectButton(box) {
+    box.innerHTML = `<button type="button" class="g-redirect" id="g-redirect"><svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>Continue with Google</button>`;
+    $('g-redirect').addEventListener('click', startRedirect);
+  }
 
   let initialized = false;
   async function renderGoogleButton() {
     const box = $('g-signin');
     if (!AUTH.configured()) { showError("Sign-in isn't set up yet: add the Google client ID in config.js."); return; }
+    // Home Screen web app: Google's page instead of Google's button.
+    if (standalone()) { renderRedirectButton(box); return; }
     try { await loadGsi(); }
-    catch (err) { showError(LOAD_ERRORS[err.message] || LOAD_ERRORS.slow); $('intro-retry').hidden = false; return; }
+    catch (err) { renderRedirectButton(box); showError(LOAD_ERRORS[err.message] || LOAD_ERRORS.slow); $('intro-retry').hidden = false; return; }
     const gid = window.google.accounts.id;
     if (!initialized) {
       // hd narrows Google's account chooser to usc.edu accounts; the server enforces it either way.
@@ -106,6 +159,7 @@
 
   let seen = false;
   try { seen = sessionStorage.getItem('ts-intro') === '1'; sessionStorage.setItem('ts-intro', '1'); } catch (e) { /* ignore */ }
+  if (finishRedirect()) return; // back from Google's sign-in page
   if (!(seen && AUTH.signedIn())) play();
-  if (!AUTH.signedIn() && AUTH.configured()) loadGsi().catch(() => { /* reported when the button is drawn */ });
+  if (!AUTH.signedIn() && AUTH.configured() && !standalone()) loadGsi().catch(() => { /* reported when the button is drawn */ });
 })();
