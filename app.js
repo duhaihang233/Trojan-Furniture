@@ -190,11 +190,14 @@
     return `<header class="topbar">${backHref ? `<a class="icon-btn" href="${backHref}" data-action="back" aria-label="Back">${I.back}</a>` : '<span class="spacer44"></span>'}<h1>${esc(title)}</h1>${cartButton()}</header>`;
   }
   // Cart in the top right of every screen (not on the cart and checkout themselves).
+  let lastCartCount = Infinity; // no bounce on the first draw
   function cartButton() {
     const r = parse().route;
     if (r === 'cart' || r === 'checkout' || AUTH.needsSetup()) return '<span class="spacer44"></span>';
     const n = cartRows(S.cart).length;
-    return `<a class="icon-btn cart-btn" href="#/cart" aria-label="Cart${n ? ', ' + n + ' item' + (n > 1 ? 's' : '') : ''}">${I.cart}${n ? `<span class="cart-dot">${n}</span>` : ''}</a>`;
+    const bump = n > lastCartCount; // just added something: the count bounces once
+    lastCartCount = n;
+    return `<a class="icon-btn cart-btn ${bump ? 'bump' : ''}" href="#/cart" aria-label="Cart${n ? ', ' + n + ' item' + (n > 1 ? 's' : '') : ''}">${I.cart}${n ? `<span class="cart-dot">${n}</span>` : ''}</a>`;
   }
 
   // AI AR model status shown on listing cards and the listing page.
@@ -389,7 +392,7 @@
     return `${topbar(nameOf(l), '#/home')}
     <div class="photo"><img src="${esc(shown)}" alt="${esc(nameOf(l))}, the seller's actual item"><span class="badge">${esc(l.condition)}</span>
       ${arSlot(l, mine)}
-      ${mine ? '' : `<button type="button" class="icon-btn" data-action="fav" data-id="${esc(id)}" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites" style="position:absolute;top:8px;left:8px;color:var(--cardinal)">${I.heart(fav)}</button>`}</div>
+      ${mine ? '' : `<button type="button" class="icon-btn fav-btn ${ui.justFaved === id ? 'just-faved' : ''}" data-action="fav" data-id="${esc(id)}" aria-pressed="${fav}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites" style="position:absolute;top:8px;left:8px;color:var(--cardinal)">${I.heart(fav)}</button>`}</div>
     ${photos.length > 1 ? `<div class="hscroll" style="padding:10px 16px 0">${photos.map((src, i) => `<button type="button" class="thumb photo-pick ${src === shown ? 'on' : ''}" data-action="photo-idx" data-id="${i}" aria-label="Photo ${i + 1}" aria-pressed="${src === shown}"><img src="${esc(src)}" alt=""></button>`).join('')}</div>` : ''}
     <section class="section">
       <div><h2 class="serif" style="margin:0;font-size:26px">${esc(nameOf(l))}</h2><p class="sub" style="margin:4px 0 0">${esc(l.sample ? typeOf(l).blurb : (D.categories.find((c) => c.id === catOf(l)) || {}).label || '')}</p></div>
@@ -1730,6 +1733,27 @@
       .catch((err) => toast(err.message));
   }
 
+  // Press ripple: a soft circle grows from where you touched a button. It lives in its own clipped layer,
+  // so badges on the button (like the cart count) are never cut off. Off with "reduce motion".
+  const RIPPLE = '.btn, .btn-dashed, .chip, .chip-btn, .opt, .tabs2 button, .choice, .g-redirect, .star';
+  const reduceMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+  document.addEventListener('pointerdown', (e) => {
+    if (reduceMotion.matches || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const b = e.target.closest(RIPPLE);
+    if (!b || b.disabled || b.getAttribute('aria-disabled') === 'true') return;
+    if (getComputedStyle(b).position === 'static') b.style.position = 'relative';
+    const r = b.getBoundingClientRect();
+    const size = Math.max(r.width, r.height) * 2.2;
+    const wrap = document.createElement('span');
+    wrap.className = 'ripple-wrap';
+    const dot = document.createElement('span');
+    dot.className = 'ripple';
+    dot.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - r.left - size / 2}px;top:${e.clientY - r.top - size / 2}px`;
+    wrap.appendChild(dot);
+    b.appendChild(wrap);
+    dot.addEventListener('animationend', () => wrap.remove(), { once: true });
+  }, { passive: true });
+
   app.addEventListener('click', (e) => {
     // Opening a search result counts as a search worth remembering.
     if (e.target.closest('.s-page .lcard')) rememberSearch(ui.q);
@@ -1746,6 +1770,8 @@
       case 'fav': {
         const on = !server.favorites.includes(id);
         const before = server.favorites;
+        ui.justFaved = on ? id : null;
+        clearTimeout(ui.favTimer); ui.favTimer = setTimeout(() => { ui.justFaved = null; }, 700);
         server.favorites = on ? [id].concat(before) : before.filter((f) => f !== id);
         rerender(); toast(on ? 'Saved to favorites' : 'Removed from favorites');
         AUTH.call('/favorites/' + encodeURIComponent(id), { method: on ? 'PUT' : 'DELETE' })

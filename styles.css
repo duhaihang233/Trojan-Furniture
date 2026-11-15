@@ -808,3 +808,45 @@ html, body, #app { background: var(--bg); }
 /* Item names in lists use the UI font too; the serif is kept for page and section titles. */
 .list-row .t-serif, .card .t-serif, .chat-order .t-serif { font-family: var(--sans); font-size: 15px; font-weight: 700; }
 .card .empty { padding: 14px 8px; font-size: 14px; }
+
+/* ---------- Button animation ---------- */
+/* Press ripple (app.js adds .ripple-wrap > .ripple where you touch). currentColor makes it white on
+   red buttons and red on white ones. */
+.ripple-wrap { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: 0; }
+.ripple { position: absolute; border-radius: 50%; background: currentColor; opacity: .22; transform: scale(0); animation: ripple .55s cubic-bezier(.2, .7, .3, 1) forwards; }
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+.btn > :not(.ripple-wrap), .chip > :not(.ripple-wrap), .opt > :not(.ripple-wrap) { position: relative; z-index: 1; }
+
+/* Primary buttons: a light sheen sweeps across on hover (mouse and trackpad only). */
+.btn-cardinal { position: relative; overflow: hidden; }
+.btn-cardinal::after { content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 45%; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .28), transparent); transform: skewX(-18deg); opacity: 0; }
+@media (hover: hover) and (pointer: fine) {
+  .btn-cardinal:hover:not(:disabled)::after { animation: sheen .75s ease forwards; }
+  .btn-outline:hover:not(:disabled):not(:active) { box-shadow: 0 3px 10px rgba(153, 0, 0, .14); }
+  .btn-cardinal:hover:not(:disabled):not(:active) { box-shadow: 0 5px 14px rgba(153, 0, 0, .3); }
+}
+@keyframes sheen { 0% { left: -60%; opacity: 1; } 100% { left: 120%; opacity: 1; } }
+
+/* Favorite: the heart pops and throws a small ring of dots. */
+.fav-btn { position: relative; }
+.fav-btn.just-faved svg { animation: heart-pop .45s cubic-bezier(.2, .9, .3, 1.4); }
+.fav-btn.just-faved::before, .fav-btn.just-faved::after { content: ''; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 -16px 0 var(--cardinal), 14px -8px 0 var(--gold), 14px 8px 0 var(--cardinal), 0 16px 0 var(--gold), -14px 8px 0 var(--cardinal), -14px -8px 0 var(--gold);
+  animation: heart-burst .5s ease-out forwards; }
+.fav-btn.just-faved::after { transform: rotate(30deg); animation-delay: .04s; }
+@keyframes heart-pop { 0% { transform: scale(.6); } 55% { transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes heart-burst { 0% { opacity: 1; scale: .4; } 100% { opacity: 0; scale: 1.25; } }
+
+/* Cart count bounces when something is added. */
+.cart-btn.bump .cart-dot { animation: cart-bump .5s cubic-bezier(.2, .9, .3, 1.5); }
+.cart-btn.bump svg { animation: cart-shake .45s ease; }
+@keyframes cart-bump { 0% { transform: scale(.4); } 50% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes cart-shake { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 60% { transform: rotate(8deg); } }
+
+
+@media (prefers-reduced-motion: reduce) {
+  .ripple, .btn-cardinal::after, .fav-btn.just-faved svg, .fav-btn.just-faved::before, .fav-btn.just-faved::after,
+  .cart-btn.bump .cart-dot, .cart-btn.bump svg { animation: none !important; }
+  .fav-btn.just-faved::before, .fav-btn.just-faved::after { display: none; }
+}
